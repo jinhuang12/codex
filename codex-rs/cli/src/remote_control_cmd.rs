@@ -66,6 +66,11 @@ pub(crate) async fn run(
     arg0_paths: Arg0DispatchPaths,
     root_config_overrides: CliConfigOverrides,
 ) -> anyhow::Result<()> {
+    if command.subcommand.is_some() && !root_config_overrides.raw_overrides.is_empty() {
+        anyhow::bail!(
+            "Remote-control daemon commands do not accept -c overrides. Save the Mantle provider and AWS settings in config.toml, or run foreground `codex remote-control`."
+        );
+    }
     match command.subcommand {
         None => {
             print_remote_control_progress(
@@ -133,7 +138,7 @@ async fn run_foreground_remote_control(
         arg0_paths,
         root_config_overrides,
         LoaderOverrides::default(),
-        /*strict_config*/ false,
+        /*strict_config*/ true,
         /*default_analytics_enabled*/ false,
         transport,
         SessionSource::VSCode,

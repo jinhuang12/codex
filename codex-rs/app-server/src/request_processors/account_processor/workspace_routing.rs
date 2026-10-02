@@ -43,6 +43,7 @@ pub(super) struct CachedWorkspaceRouting {
 
 pub(super) struct AccountRead {
     account_state: ProviderAccountState,
+    inference: Option<codex_app_server_protocol::InferenceAccount>,
     pub(super) workspace_routing: Option<WorkspaceRouting>,
 }
 
@@ -169,6 +170,7 @@ impl AccountRequestProcessor {
         Ok(Some(
             GetAccountResponse {
                 account: read.account_state.account.map(Account::from),
+                inference: read.inference,
                 requires_openai_auth: read.account_state.requires_openai_auth,
                 workspace_routing: read.workspace_routing.map(|routing| {
                     codex_app_server_protocol::WorkspaceRouting {
@@ -227,9 +229,15 @@ impl AccountRequestProcessor {
                 config.model_provider.clone(),
                 Some(self.auth_manager.clone()),
             );
-            let account_state = provider
+            let provider_account_state = provider
                 .account_state()
                 .map_err(AccountReadError::InvalidAccount)?;
+            let (account_state, inference) = mantle_remote_control::account_states(
+                &config,
+                &self.auth_manager,
+                provider_account_state,
+            )
+            .map_err(AccountReadError::InvalidAccount)?;
             let mut workspace_routing = if let Some((auth, account_id)) = auth
                 .as_ref()
                 .filter(|auth| {
@@ -402,6 +410,7 @@ impl AccountRequestProcessor {
             }
             Ok(AccountRead {
                 account_state,
+                inference,
                 workspace_routing,
             })
         });

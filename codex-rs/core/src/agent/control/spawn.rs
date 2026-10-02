@@ -454,6 +454,12 @@ impl LocalAgentControl {
         if let Some(model) = stored_model {
             config.model = Some(model);
         }
+        if config.remote_control_mantle && config.model_provider_id != stored_model_provider {
+            return Err(CodexErr::InvalidRequest(
+                "Cannot resume a child from another provider in Mantle remote-control mode"
+                    .to_string(),
+            ));
+        }
         if config.model_provider_id != stored_model_provider {
             config.model_provider = config
                 .model_providers

@@ -67,6 +67,7 @@ pub(crate) struct AmazonBedrockModelProvider {
     pub(crate) info: ModelProviderInfo,
     aws: ModelProviderAwsAuthInfo,
     endpoint: BedrockEndpoint,
+    auth_source: auth::BedrockAuthSource,
     auth_manager: Option<Arc<AuthManager>>,
     credential_export: Option<Arc<AwsCredentialExport>>,
     auth_recovery: Option<Arc<AwsAuthRecovery>>,
@@ -126,6 +127,7 @@ impl AmazonBedrockModelProvider {
             info: provider_info,
             aws,
             endpoint,
+            auth_source,
             auth_manager,
             credential_export,
             auth_recovery,
@@ -133,7 +135,9 @@ impl AmazonBedrockModelProvider {
     }
 
     fn auth_source(&self) -> auth::BedrockAuthSource {
-        auth::auth_source(&self.info, self.auth_manager.as_deref(), std::env::var)
+        // Do not silently switch from an expired/removed credential to a different
+        // AWS identity. A new provider instance can select a new source explicitly.
+        self.auth_source
     }
 
     fn managed_auth(&self) -> Option<CodexAuth> {
@@ -683,6 +687,70 @@ mod tests {
                 requires_openai_auth: false,
             })
         );
+    }
+
+    #[tokio::test]
+    async fn mantle_chatgpt_control_auth_is_not_inference_auth() {
+        let manager =
+            AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+        let provider = AmazonBedrockModelProvider::new(
+            ModelProviderInfo::create_amazon_bedrock_provider(Some(ModelProviderAwsAuthInfo {
+                profile: Some("test-profile".to_string()),
+                region: Some("us-east-1".to_string()),
+                credential_export: None,
+                auth_refresh: None,
+            })),
+            Some(manager),
+        );
+        assert_eq!(provider.endpoint, BedrockEndpoint::Mantle);
+        assert_eq!(
+            provider.auth_source(),
+            auth::BedrockAuthSource::ConfiguredAwsProfile
+        );
+        assert_eq!(provider.auth().await, None);
+        assert!(provider.auth_manager().is_none());
+        assert_eq!(
+            provider.runtime_base_url().await.expect("Mantle URL"),
+            Some("https://bedrock-mantle.us-east-1.api.aws/openai/v1".to_string())
+        );
+        assert_eq!(
+            provider.capabilities().remote_compaction,
+            RemoteCompactionSupport::V2
+        );
+        assert_eq!(
+            provider.approval_review_preferred_model(),
+            AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID
+        );
+        assert_eq!(
+            provider.memory_extraction_preferred_model(),
+            AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID
+        );
+        assert_eq!(
+            provider.memory_consolidation_preferred_model(),
+            AMAZON_BEDROCK_GPT_5_6_TERRA_MODEL_ID
+        );
+    }
+
+    #[tokio::test]
+    async fn removed_managed_credential_does_not_select_another_aws_source() {
+        let home = tempfile::TempDir::new().expect("temporary home");
+        let manager = AuthManager::from_auth_for_testing_with_home(
+            CodexAuth::BedrockApiKey(BedrockApiKeyAuth {
+                api_key: "bedrock-test-key".to_string(),
+                region: "us-east-1".to_string(),
+            }),
+            home.path().to_path_buf(),
+        );
+        let provider = AmazonBedrockModelProvider::new(
+            ModelProviderInfo::create_amazon_bedrock_provider(None),
+            Some(manager.clone()),
+        );
+        manager.reload().await;
+        assert_eq!(
+            provider.auth_source(),
+            auth::BedrockAuthSource::ManagedBearerToken
+        );
+        assert!(provider.api_auth().await.is_err());
     }
 
     #[test]

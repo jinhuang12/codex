@@ -55,6 +55,7 @@ fn client_response_jsonrpc_parts_preserve_payloads_and_request_ids() -> Result<(
         ),
         (
             ClientResponsePayload::GetAccount(v2::GetAccountResponse {
+                inference: None,
                 account: Some(v2::Account::ApiKey {}),
                 requires_openai_auth: false,
                 workspace_routing: None,

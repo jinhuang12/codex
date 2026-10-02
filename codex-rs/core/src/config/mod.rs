@@ -653,6 +653,9 @@ pub struct Config {
     /// Info needed to make an API request to the model.
     pub model_provider: ModelProviderInfo,
 
+    /// Separate ChatGPT remote-control identity from native Bedrock Mantle inference.
+    pub remote_control_mantle: bool,
+
     /// Deprecated: `friendly` and `pragmatic` no longer select a style.
     pub personality: Option<Personality>,
 
@@ -3826,6 +3829,7 @@ impl Config {
             merge_configured_model_providers(built_in_model_providers(openai_base_url), cfg.model_providers)
                 .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
 
+        let remote_control_mantle = cfg.remote_control_mantle.unwrap_or(false);
         let model_provider_id = config_layer_stack.required_model_provider().map(str::to_string)
             .or(model_provider)
             .or(cfg.model_provider)
@@ -3841,6 +3845,15 @@ impl Config {
                 std::io::Error::new(std::io::ErrorKind::NotFound, message)
             })?
             .clone();
+
+        if remote_control_mantle
+            && model_provider_id != codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                codex_config::MantleRemoteControlError,
+            ));
+        }
 
         let shell_environment_policy = ShellEnvironmentPolicy::from(cfg.shell_environment_policy);
         let allow_login_shell = cfg.allow_login_shell.unwrap_or(true);
@@ -4301,6 +4314,7 @@ impl Config {
                 .unwrap_or_default(),
             model_provider_id,
             model_provider,
+            remote_control_mantle,
             cwd: resolved_cwd,
             workspace_roots: workspace_roots.clone(),
             workspace_roots_explicit,

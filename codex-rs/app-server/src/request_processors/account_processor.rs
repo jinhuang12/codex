@@ -20,6 +20,7 @@ mod bedrock_gov_cloud;
 mod bedrock_setup;
 mod enterprise_login;
 mod gateway_oauth;
+mod mantle_remote_control;
 mod rate_limit_resets;
 mod workspace_routing;
 
@@ -441,6 +442,7 @@ impl AccountRequestProcessor {
         &self,
         params: &LoginApiKeyParams,
     ) -> std::result::Result<(), JSONRPCErrorError> {
+        self.ensure_mantle_control_login_preserved().await?;
         if self.auth_manager.is_external_chatgpt_auth_active() {
             return Err(self.external_auth_active_error());
         }
@@ -498,6 +500,7 @@ impl AccountRequestProcessor {
         region: String,
     ) {
         let result = async {
+            self.ensure_mantle_control_login_preserved().await?;
             self.ensure_bedrock_login_allowed()?;
 
             match &credentials {
@@ -1053,7 +1056,7 @@ impl AccountRequestProcessor {
 
         self.config_manager.clear_cloud_config_bundle_loader();
 
-        if config.model_provider.is_amazon_bedrock() {
+        if config.model_provider.is_amazon_bedrock() && !config.remote_control_mantle {
             clear_user_model_provider_if_bedrock(&self.config_manager, &config).await?;
         }
 
@@ -1127,6 +1130,9 @@ impl AccountRequestProcessor {
         // then no auth step is required; otherwise, default to requiring auth.
         let config = self.load_latest_config().await;
         let requires_openai_auth = config.model_provider.requires_openai_auth;
+        if config.remote_control_mantle {
+            return Ok(mantle_remote_control::auth_status(&self.auth_manager));
+        }
 
         let response = if !requires_openai_auth {
             GetAuthStatusResponse {
@@ -1191,6 +1197,11 @@ impl AccountRequestProcessor {
         &self,
         params: GetAccountRateLimitsParams,
     ) -> Result<GetAccountRateLimitsResponse, JSONRPCErrorError> {
+        if self.load_latest_config().await.remote_control_mantle {
+            return Err(invalid_request(
+                "Inference is billed by Amazon Bedrock Mantle, not the ChatGPT remote-control account. ChatGPT model rate limits do not apply to these requests.",
+            ));
+        }
         let Some((auth, http_client_factory)) =
             self.auth_manager.auth_with_http_client_factory().await
         else {
