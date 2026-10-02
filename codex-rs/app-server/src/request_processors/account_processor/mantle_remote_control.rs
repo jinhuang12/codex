@@ -95,7 +95,8 @@ mod tests {
 
     async fn config(enabled: bool) -> Config {
         let home = TempDir::new().expect("temporary home");
-        ConfigBuilder::without_managed_config_for_tests()
+        ConfigBuilder::default()
+            .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
             .codex_home(home.path().to_path_buf())
             .cli_overrides(vec![
                 ("model_provider".into(), AMAZON_BEDROCK_PROVIDER_ID.into()),

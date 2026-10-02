@@ -58,6 +58,10 @@ pub const CONFIG_TOML_FILE: &str = "config.toml";
 )]
 pub struct MantleRemoteControlError;
 
+#[derive(Debug, thiserror::Error)]
+#[error("invalid Mantle remote-control configuration: {0}")]
+pub struct MantleRemoteControlConfigError(#[source] pub std::io::Error);
+
 pub use application_requirements::ApplicationNetworkRequirementsToml;
 pub use application_requirements::ApplicationRequirementsToml;
 pub use auth_policy::ManagedAuthPolicy;

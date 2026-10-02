@@ -30,6 +30,11 @@ const AWS_TOKEN: &str = "mantle-token-never-for-chatgpt";
 
 async fn app(home: &Path, mantle: &MockServer, control: &MockServer) -> Result<TestAppServer> {
     mount_workspace_routing(control).await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/revoke"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(control)
+        .await;
     for endpoint in [
         "/backend-api/wham/config/bundle",
         "/backend-api/wham/settings/user",
@@ -55,8 +60,6 @@ plugins = false
 shell_snapshot = false
 [model_providers.amazon-bedrock]
 base_url = "{}/v1"
-request_max_retries = 0
-stream_max_retries = 0
 [model_providers.amazon-bedrock.aws]
 region = "us-east-1"
 "#,
@@ -77,6 +80,14 @@ region = "us-east-1"
         .without_auto_env()
         .with_env_overrides(&[
             ("AWS_BEARER_TOKEN_BEDROCK", Some(AWS_TOKEN)),
+            (
+                "CODEX_REVOKE_TOKEN_URL_OVERRIDE",
+                Some(&format!("{}/oauth/revoke", control.uri())),
+            ),
+            (
+                "CODEX_REFRESH_TOKEN_URL_OVERRIDE",
+                Some(&format!("{}/oauth/token", control.uri())),
+            ),
             ("AWS_PROFILE", None),
             ("OPENAI_API_KEY", None),
             ("CODEX_API_KEY", None),

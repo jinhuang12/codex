@@ -35,12 +35,12 @@ Sign into ChatGPT with the **fork binary**, using the same `CODEX_HOME`:
 
 ```sh
 /path/to/fork/codex login
-/path/to/fork/codex remote-control
+/path/to/fork/codex remote-control --pair
 ```
 
-The foreground command prints the pairing information and stays attached to the terminal. Stop it with Ctrl-C. This is the simplest way to verify that the running host is the fork.
+The `--pair` flag requests and prints a short-lived manual pairing code from this foreground host. The command stays attached to the terminal. With `--json --pair`, pairing data appears in the same JSON output object. Stop it with Ctrl-C. This is the simplest way to verify that the running host is the fork.
 
-For daemon operation, save all settings in `config.toml`, then use:
+Daemon operation requires a complete packaged fork, not only a bare `cargo build` executable. A managed daemon may retain a previously installed upstream package or update it independently. Install and pin the fork package through the daemon package workflow, confirm its reported path and version, and save all settings in `config.toml` before using:
 
 ```sh
 /path/to/fork/codex remote-control start

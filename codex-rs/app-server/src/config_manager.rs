@@ -370,6 +370,7 @@ impl ConfigManager {
                 if self.strict_config
                     || error.get_ref().is_some_and(|cause| {
                         cause.is::<codex_config::MantleRemoteControlError>()
+                            || cause.is::<codex_config::MantleRemoteControlConfigError>()
                     })
                     || crate::is_unsupported_untrusted_approval_policy_error(&error) =>
             {

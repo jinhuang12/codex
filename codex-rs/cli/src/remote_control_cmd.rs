@@ -34,6 +34,10 @@ pub(crate) struct RemoteControlCommand {
     #[arg(long = "json", global = true)]
     json: bool,
 
+    /// Print a manual pairing code for this foreground host, without starting a daemon.
+    #[arg(long)]
+    pair: bool,
+
     #[command(subcommand)]
     subcommand: Option<RemoteControlSubcommand>,
 }
@@ -66,6 +70,11 @@ pub(crate) async fn run(
     arg0_paths: Arg0DispatchPaths,
     root_config_overrides: CliConfigOverrides,
 ) -> anyhow::Result<()> {
+    if command.pair && command.subcommand.is_some() {
+        anyhow::bail!(
+            "Use `codex remote-control --pair` for foreground pairing, or `codex remote-control pair` for an existing daemon."
+        );
+    }
     if command.subcommand.is_some() && !root_config_overrides.raw_overrides.is_empty() {
         anyhow::bail!(
             "Remote-control daemon commands do not accept -c overrides. Save the Mantle provider and AWS settings in config.toml, or run foreground `codex remote-control`."
@@ -77,7 +86,13 @@ pub(crate) async fn run(
                 command.json,
                 "Starting app-server with remote control enabled...",
             )?;
-            run_foreground_remote_control(command.json, arg0_paths, root_config_overrides).await?;
+            run_foreground_remote_control(
+                command.json,
+                command.pair,
+                arg0_paths,
+                root_config_overrides,
+            )
+            .await?;
         }
         Some(RemoteControlSubcommand::Start) => {
             print_remote_control_progress(
@@ -114,6 +129,7 @@ fn print_remote_control_progress(json: bool, message: &str) -> anyhow::Result<()
 
 async fn run_foreground_remote_control(
     json: bool,
+    pair: bool,
     arg0_paths: Arg0DispatchPaths,
     root_config_overrides: CliConfigOverrides,
 ) -> anyhow::Result<()> {
@@ -149,7 +165,7 @@ async fn run_foreground_remote_control(
 
     let summary = match wait_for_foreground_remote_control_start(
         &mut app_server_task,
-        wait_for_foreground_remote_control_ready(socket_path),
+        wait_for_foreground_remote_control_ready(socket_path.clone()),
         stop_rx.clone(),
     )
     .await
@@ -177,7 +193,27 @@ async fn run_foreground_remote_control(
         return Ok(());
     }
 
-    if let Err(error) = print_foreground_ready_output(&summary, json) {
+    let pairing = if pair {
+        match timeout(
+            Duration::from_secs(30),
+            codex_app_server_daemon::start_remote_control_pairing_on_socket(socket_path.as_path()),
+        )
+        .await
+        .context("foreground remote-control pairing timed out")
+        .and_then(|result| result)
+        {
+            Ok(pairing) => Some(pairing),
+            Err(error) => {
+                abort_foreground_app_server(app_server_task).await;
+                stop_signal_task.abort();
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Err(error) = print_foreground_ready_output(&summary, json, pairing.as_ref()) {
         abort_foreground_app_server(app_server_task).await;
         stop_signal_task.abort();
         return Err(error);
@@ -310,19 +346,22 @@ fn print_remote_control_start_output(
 fn print_foreground_ready_output(
     summary: &AppServerRemoteControlReadyStatus,
     json: bool,
+    pairing: Option<&RemoteControlPairingStartResponse>,
 ) -> anyhow::Result<()> {
     if json {
         ensure_remote_control_startable(summary)?;
-        println!(
-            "{}",
-            serde_json::to_string(&RemoteControlStartJsonOutput::foreground(summary))?
-        );
+        let mut output = RemoteControlStartJsonOutput::foreground(summary);
+        output.pairing = pairing;
+        println!("{}", serde_json::to_string(&output)?);
         return Ok(());
     }
 
     for line in remote_control_start_human_lines(summary, RemoteControlHumanOutputMode::Foreground)?
     {
         println!("{line}");
+    }
+    if let Some(pairing) = pairing {
+        print_remote_control_pairing_output(pairing, false)?;
     }
     Ok(())
 }
@@ -337,6 +376,8 @@ struct RemoteControlStartJsonOutput<'a> {
     timed_out: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     daemon: Option<&'a AppServerRemoteControlStartOutput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pairing: Option<&'a RemoteControlPairingStartResponse>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -355,6 +396,7 @@ impl<'a> RemoteControlStartJsonOutput<'a> {
             environment_id: summary.environment_id.as_deref(),
             timed_out: summary.timed_out,
             daemon: None,
+            pairing: None,
         }
     }
 
@@ -367,6 +409,7 @@ impl<'a> RemoteControlStartJsonOutput<'a> {
             environment_id: remote_control.environment_id.as_deref(),
             timed_out: remote_control.timed_out,
             daemon: Some(&output.daemon),
+            pairing: None,
         }
     }
 }
@@ -554,6 +597,27 @@ mod tests {
             environment_id: "env_test".to_string(),
             expires_at: 1_700_000_000,
         }
+    }
+
+    #[test]
+    fn mantle_foreground_pairing_is_explicit_and_json_stays_single_object() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct Command {
+            #[command(flatten)]
+            remote: RemoteControlCommand,
+        }
+        let parsed = Command::try_parse_from(["codex", "--pair"]).expect("foreground flag");
+        assert!(parsed.remote.pair);
+        assert!(parsed.remote.subcommand.is_none());
+        let summary = remote_control_status(RemoteControlConnectionStatus::Connected);
+        let pairing = pairing_response(Some("123456"));
+        let mut output = RemoteControlStartJsonOutput::foreground(&summary);
+        output.pairing = Some(&pairing);
+        let value = serde_json::to_value(output).expect("single JSON object");
+        assert_eq!(value["mode"], "foreground");
+        assert_eq!(value["pairing"]["manualPairingCode"], "123456");
+        assert!(value.get("daemon").is_none());
     }
 
     #[test]

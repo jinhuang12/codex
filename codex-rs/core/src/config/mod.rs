@@ -1544,15 +1544,33 @@ impl ConfigBuilder {
                 .unwrap_or(&codex_config::NoopThreadConfigLoader),
         )
         .await?;
-        let config_toml = config_toml_from_layers(&config_layer_stack).await?;
-        Config::load_config_with_layer_stack(
-            LOCAL_FS.as_ref(),
-            config_toml,
-            harness_overrides,
-            codex_home,
-            config_layer_stack,
-        )
-        .await
+        let mantle_requested = config_layer_stack
+            .effective_config()
+            .get("remote_control_mantle")
+            .and_then(TomlValue::as_bool)
+            .unwrap_or(false);
+        let result = async {
+            let config_toml = config_toml_from_layers(&config_layer_stack).await?;
+            Config::load_config_with_layer_stack(
+                LOCAL_FS.as_ref(),
+                config_toml,
+                harness_overrides,
+                codex_home,
+                config_layer_stack,
+            )
+            .await
+        }
+        .await;
+        result.map_err(|error| {
+            if mantle_requested {
+                std::io::Error::new(
+                    error.kind(),
+                    codex_config::MantleRemoteControlConfigError(error),
+                )
+            } else {
+                error
+            }
+        })
     }
 
     #[cfg(test)]

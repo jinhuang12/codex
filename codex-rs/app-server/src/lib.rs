@@ -559,9 +559,10 @@ pub async fn run_main_with_transport_options(
         Ok(config) => config,
         Err(err)
             if bootstrap_config.remote_control_mantle
-                || err
-                    .get_ref()
-                    .is_some_and(|cause| cause.is::<codex_config::MantleRemoteControlError>())
+                || err.get_ref().is_some_and(|cause| {
+                    cause.is::<codex_config::MantleRemoteControlError>()
+                        || cause.is::<codex_config::MantleRemoteControlConfigError>()
+                })
                 || is_unsupported_untrusted_approval_policy_error(&err) =>
         {
             return Err(err);

@@ -3,7 +3,8 @@ use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
 async fn mantle_config(home: &Path) -> Config {
-    ConfigBuilder::without_managed_config_for_tests()
+    ConfigBuilder::default()
+        .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
         .codex_home(home.to_path_buf())
         .cli_overrides(vec![
             ("model_provider".into(), AMAZON_BEDROCK_PROVIDER_ID.into()),
@@ -112,4 +113,26 @@ async fn mantle_binding_rejects_client_disabling_mode_and_selecting_openai_toget
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn mantle_invalid_provider_definition_must_not_fall_back_to_openai() {
+    let home = TempDir::new().expect("temporary home");
+    std::fs::write(
+        home.path().join("config.toml"),
+        r#"
+remote_control_mantle = true
+model_provider = "amazon-bedrock"
+[model_providers.amazon-bedrock]
+request_max_retries = 0
+"#,
+    )
+    .expect("invalid native provider config");
+    let manager = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
+    let error = manager
+        .load_startup_config(None)
+        .await
+        .err()
+        .expect("must not select OpenAI defaults");
+    assert!(error.to_string().contains("Mantle"));
 }
