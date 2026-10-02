@@ -12,31 +12,68 @@ Build the fork, not an upstream release:
 git clone --branch feat/mantle-remote-control https://github.com/jinhuang12/codex.git
 cd codex/codex-rs
 cargo build --locked --release -p codex-cli
+./target/release/codex --version
 ```
 
-The workspace may set a custom `CARGO_TARGET_DIR`. Use the resulting `codex` binary throughout these steps. Do not assume that installing this CLI replaces a binary bundled with the desktop app.
+The workspace may set a custom `CARGO_TARGET_DIR`. If so, use that directory for the version check. Use the resulting `codex` binary throughout these steps. Installing this CLI does not replace a binary bundled with the desktop app.
 
-Save the following in the host's `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`). Put the top-level fields before TOML table headers. Replace the profile, region, and model with values your AWS account supports.
+The build must report `0.162.0-alpha.7+mantle.1`, not `0.0.0`. The shipping phone client rejects a host that reports the development placeholder. The version comes from this fork's upstream base: `ca466061d64f0b44f416135c7fd06aa7af850bbc` is the parent of release commit `0f02e325f8fccbaa71a965b8efa15c224d10a8ba` (`rust-v0.162.0-alpha.7`), whose only change is the workspace version. The `+mantle.1` suffix identifies this fork build. Do not change the reported version of an older, incompatible host to bypass a client check.
+
+Use a separate configuration directory for the first test:
+
+```sh
+export CODEX_HOME="$HOME/.codex-mantle-remote-control"
+install -d -m 700 "$CODEX_HOME"
+```
+
+Save the following in `$CODEX_HOME/config.toml`. Put the top-level fields before TOML table headers. Replace the profile, region, and model with values your AWS account supports.
 
 ```toml
 remote_control_mantle = true
 model_provider = "amazon-bedrock"
-model = "openai.gpt-5.6-luna"
+model = "openai.gpt-6.1-sol"
+model_reasoning_effort = "xhigh"
+model_reasoning_summary = "none"
 web_search = "disabled"
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
 
 [model_providers.amazon-bedrock.aws]
 profile = "your-bedrock-profile"
 region = "us-east-1"
 ```
 
-The model above is an example from this source revision's Mantle catalog. Model access and regional availability still depend on AWS. An explicit AWS profile takes precedence over environment credentials. Authenticate the profile through your usual AWS process before starting the host.
+This model and region passed the live test described below. Model access still depends on the AWS account. An explicit AWS profile takes precedence over environment credentials. Authenticate the profile through your usual AWS process before starting the host.
+
+The native Mantle catalog disables `reasoning.summary` for GPT-6.1 Sol. A phone can request `summary = "detailed"` for a turn, which overrides the configuration default. The model capability prevents that unsupported field from reaching Mantle. Setting `model_reasoning_summary = "none"` alone did not fix the phone test. No custom `model_catalog_json` file is required by this revision.
+
+### Linux sandbox prerequisites
+
+A bare Cargo build needs a system `bwrap` executable for sandboxed shell tools. On Ubuntu 24.04, AppArmor can also deny its user namespace. Install `bubblewrap` and the distribution's `apparmor-profiles` package through the host's package-management process. Check the package changes before installation.
+
+If AppArmor denies `bwrap`, install its vendor profile without replacing an existing local profile:
+
+```sh
+if [ ! -e /etc/apparmor.d/bwrap-userns-restrict ]; then
+  sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict \
+    /etc/apparmor.d/bwrap-userns-restrict
+fi
+sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+bwrap --unshare-user --ro-bind / / -- /bin/true
+```
+
+The final command must exit successfully before testing a sandboxed shell tool. Keep `kernel.apparmor_restrict_unprivileged_userns` enabled. Do not disable the sandbox to work around this error. The live host used the vendor profile and kept this restriction set to `1`.
+
+### Sign in and pair
 
 Sign into ChatGPT with the **fork binary**, using the same `CODEX_HOME`:
 
 ```sh
-/path/to/fork/codex login
+/path/to/fork/codex login --device-auth
 /path/to/fork/codex remote-control --pair
 ```
+
+Complete device sign-in with the ChatGPT account used by the phone. If that account does not allow device sign-in, use the browser flow with `codex login` on a host where its callback is reachable.
 
 The `--pair` flag requests and prints a short-lived manual pairing code from this foreground host. The command stays attached to the terminal. With `--json --pair`, pairing data appears in the same JSON output object. Stop it with Ctrl-C. This is the simplest way to verify that the running host is the fork.
 
@@ -109,11 +146,33 @@ cargo test --locked -p codex-app-server --test mantle_remote_control_relay
 
 The relay test uses the actual host WebSocket transport. It exercises pairing, account reads, a model/tool/model exchange, reconnect, thread resume, an attempted provider escape, and logout. Other tests cover credential separation, failed AWS authentication, and configuration binding.
 
-These tests are not a live acceptance test of the hosted relay, an AWS account, or the shipping ChatGPT client. Before production use, verify enrollment, pairing, a tool approval, interruption, reconnect, account revocation, and AWS request logs with the actual client and fork binary. Do not remove hosted authorization checks or claim compatibility from a local unit-test result alone.
+The relay test also sends GPT-6.1 Sol a turn with `effort = "xhigh"` and `summary = "detailed"`. It checks that both model requests retain the effort and omit the summary field. The provider tests cover both the built-in catalog and a configured catalog that advertises summary support.
+
+### Live test on 2026-10-02
+
+The live test used an Ubuntu 24.04 x86-64 host, the shipping ChatGPT iOS app `1.2026.266`, a real ChatGPT account, and an AWS profile with Mantle access in `us-east-1`.
+
+| Check | Observed result |
+| --- | --- |
+| Build provenance | PR source `c6e026bd9ca9b1465bbeb8e63e78524d351d411f`, stamped `0.162.0-alpha.7+mantle.c6e026bd9ca9` |
+| Separate accounts | `account/read` reported ChatGPT control identity and `amazon-bedrock` inference with `requiresOpenaiAuth = false` |
+| Pairing | The shipping phone client connected to the foreground fork through the hosted relay |
+| Phone tool turn | GPT-6.1 Sol with `xhigh` ran `pwd` successfully and returned `MANTLE_PHONE_OK` |
+| Phone-requested summary | The phone sent `detailed`; a one-field model-catalog override disabled the unsupported summary capability |
+| Connection trace | During a later phone test, the same host process opened a TLS connection whose server name was `bedrock-mantle.us-east-1.api.aws` |
+
+For the traced turn, the request started at 4:15:33 PM EDT, the AWS TLS handshake was captured at 4:15:34 PM, and the reply containing `MANTLE_TRACE_20261002` completed at 4:15:40 PM. The capture also saw `chatgpt.com` connections. It retained socket metadata and handshake hostnames; it did not decrypt request bodies or inspect billing records.
+
+This revision moves the tested one-field catalog override into the native provider and uses a stable fork version suffix. The live results above describe the earlier binary plus that override. The new source revision must also pass its regression tests; the earlier live test is not a claim that all checks on a later commit passed.
+
+This is a successful basic phone/tool test, not full production qualification. Live approval prompts, interruption, automatic restart, account revocation, and AWS request-log auditing remain unverified. Local relay tests cover reconnect and logout, but those tests do not replace live checks of those behaviors.
 
 ## Troubleshooting
 
 - **The account still reports Bedrock as the top-level login:** check that the host runs the fork, reads the intended config, and has the opt-in setting enabled.
 - **Mantle binding error:** a client/profile/config reload tried to change the captured provider definition. Restore it or restart with the intended configuration.
 - **AWS access or region error:** fix the selected AWS credential source or model access. ChatGPT login does not grant AWS access.
+- **The phone requires a newer host:** check the running fork's version. A `0.0.0` build is rejected even when its source is current; rebuild this branch and restart only that host.
+- **Unsupported `reasoning.summary` for GPT-6.1 Sol:** rebuild with the native catalog fix and restart the host. A configuration default alone cannot override the phone's per-turn request.
+- **`bwrap` missing or user namespace denied:** complete the Linux sandbox prerequisites above and rerun the sandbox check.
 - **Remote Control remains unavailable in the shipping client:** distinguish host logs from client UI and hosted-service restrictions. This fork cannot change a closed client or grant server-side enrollment privileges.

@@ -189,7 +189,8 @@ async fn mantle_remote_pair_tool_turn_reconnect_resume_and_logout() -> Result<()
             r#"
 remote_control_mantle = true
 model_provider = "amazon-bedrock"
-model = "openai.gpt-5.6-luna"
+model = "openai.gpt-6.1-sol"
+model_reasoning_summary = "none"
 chatgpt_base_url = "{control_url}/backend-api"
 cli_auth_credentials_store = "file"
 web_search = "disabled"
@@ -274,9 +275,11 @@ region = "us-east-1"
     }})).await?;
     let thread = relay.response(3).await?;
     assert_eq!(thread["result"]["modelProvider"], "amazon-bedrock");
+    assert_eq!(thread["result"]["model"], "openai.gpt-6.1-sol");
     let thread_id = thread["result"]["thread"]["id"].clone();
     relay.send(json!({"id": 4, "method": "turn/start", "params": {
         "threadId": thread_id, "input": [{"type": "text", "text": "Use echo and report the result.", "textElements": []}],
+        "effort": "xhigh", "summary": "detailed",
     }})).await?;
     assert!(relay.response(4).await?.get("result").is_some());
     let tool = relay
@@ -344,6 +347,10 @@ region = "us-east-1"
         );
         assert!(!request.headers.contains_key("chatgpt-account-id"));
         assert!(!format!("{:?}", request.headers).contains(CONTROL_TOKEN));
+        let body: Value = request.body_json()?;
+        assert_eq!(body["model"], "openai.gpt-6.1-sol");
+        assert_eq!(body["reasoning"]["effort"], "xhigh");
+        assert_eq!(body["reasoning"].get("summary"), None);
     }
     assert!(model_requests.requests()[1].body_contains_text("echoed-over-remote-control"));
     drop(model_requests);
