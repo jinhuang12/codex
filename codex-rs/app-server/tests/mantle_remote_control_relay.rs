@@ -9,17 +9,16 @@ use app_test_support::TestAppServer;
 use app_test_support::write_chatgpt_auth;
 use axum::Json;
 use axum::Router;
-use axum::extract::OriginalUri;
 use axum::extract::State;
 use axum::extract::ws::Message;
 use axum::extract::ws::WebSocket;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::http::HeaderMap;
+use axum::http::Uri;
 use axum::routing::get;
 use codex_app_server_protocol::RemoteControlPairingStartParams;
 use codex_config::types::AuthCredentialsStoreMode;
 use core_test_support::responses;
-use futures::SinkExt;
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
@@ -58,11 +57,7 @@ impl Control {
     }
 }
 
-async fn control_http(
-    State(control): State<Control>,
-    OriginalUri(uri): OriginalUri,
-    headers: HeaderMap,
-) -> Json<Value> {
+async fn control_http(State(control): State<Control>, uri: Uri, headers: HeaderMap) -> Json<Value> {
     control.record(uri.path(), &headers);
     let body = if uri.path().ends_with("/accounts/check") {
         json!({"accounts": [{"id": "mantle-account", "workspace_backend_origin": "https://chatgpt.com",

@@ -530,14 +530,20 @@ mod tests {
             for value in [None, Some(""), Some("   ")] {
                 let result = environment_access_keys(|name| {
                     if name == missing {
-                        value.map(str::to_string).ok_or(std::env::VarError::NotPresent)
+                        value
+                            .map(str::to_string)
+                            .ok_or(std::env::VarError::NotPresent)
                     } else {
                         Ok("synthetic-secret-not-for-errors".to_string())
                     }
                 });
                 let error = result.expect_err("selected source must not use the SDK chain");
                 assert!(error.to_string().contains(missing));
-                assert!(!error.to_string().contains("synthetic-secret-not-for-errors"));
+                assert!(
+                    !error
+                        .to_string()
+                        .contains("synthetic-secret-not-for-errors")
+                );
             }
         }
     }
