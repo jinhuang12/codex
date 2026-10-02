@@ -1,0 +1,94 @@
+name: Generate and validate Mantle feature
+on:
+  push:
+    branches: [feat/mantle-remote-control]
+    paths: ['.github/workflows/finalize-mantle-source.yml']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  validate:
+    if: github.repository == 'jinhuang12/codex' && github.ref == 'refs/heads/feat/mantle-remote-control'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+      CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+      RUST_MIN_STACK: '8388608'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/mantle-remote-control
+      - uses: ./.github/actions/setup-ci
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/codex-ci/cargo-target
+          key: mantle-rust-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-v1
+      - name: Finish protocol fixtures and test normalization
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('docs/mantle-remote-control.md')
+          s = p.read_text().replace('"authMode": "awsSdk"', '"usesCodexManagedCredentials": false')
+          p.write_text(s)
+          p = Path('codex-rs/app-server/tests/mantle_remote_control_relay.rs')
+          s = p.read_text().replace('assert!(String::from_utf8_lossy(&inference[1].body).contains("echoed-over-remote-control"));', 'assert!(model_requests.requests()[1].body_contains_text("echoed-over-remote-control"));')
+          p.write_text(s)
+          PY
+          if ! command -v uv >/dev/null; then python3 -m pip install --user uv; fi
+          cd codex-rs
+          cargo fmt --all
+          cargo run --locked -p codex-config-schema --bin codex-write-config-schema 2>&1 | tee /tmp/mantle-config-schema.log
+          python3 app-server-protocol/scripts/write_schema_fixtures.py 2>&1 | tee /tmp/mantle-schema.log
+          python3 app-server-protocol/scripts/write_schema_fixtures.py --experimental 2>&1 | tee /tmp/mantle-experimental-schema.log
+      - name: Commit generated source and remove bootstrap workflow
+        run: |
+          git rm .github/workflows/finalize-mantle-source.yml
+          git add codex-rs sdk/python docs/mantle-remote-control.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: regenerate Mantle account schemas and format relay tests'
+          git push origin HEAD:feat/mantle-remote-control
+      - name: Compile changed crates and test targets
+        working-directory: codex-rs
+        run: cargo check --locked --tests -p codex-app-server -p codex-cli -p codex-model-provider 2>&1 | tee /tmp/mantle-check.log
+      - name: Native provider tests
+        working-directory: codex-rs
+        run: cargo test --locked -p codex-model-provider --lib amazon_bedrock 2>&1 | tee /tmp/mantle-provider.log
+      - name: Host binding unit tests
+        working-directory: codex-rs
+        run: cargo test --locked -p codex-app-server --lib mantle 2>&1 | tee /tmp/mantle-unit.log
+      - name: Account and inference integration tests
+        working-directory: codex-rs
+        run: cargo test --locked -p codex-app-server --test all suite::v2::mantle_remote_control 2>&1 | tee /tmp/mantle-integration.log
+      - name: Real relay transport integration test
+        working-directory: codex-rs
+        run: cargo test --locked -p codex-app-server --test mantle_remote_control_relay 2>&1 | tee /tmp/mantle-relay.log
+      - name: Existing account and remote-control regressions
+        working-directory: codex-rs
+        run: |
+          cargo test --locked -p codex-app-server --test all suite::v2::account 2>&1 | tee /tmp/mantle-account-regressions.log
+          cargo test --locked -p codex-app-server --test all suite::v2::remote_control 2>&1 | tee /tmp/mantle-remote-regressions.log
+      - name: Export validation artifacts
+        if: always()
+        run: |
+          git archive --format=tar.gz --output=/tmp/mantle-source.tar.gz HEAD
+          git diff HEAD > /tmp/mantle-uncommitted.patch
+          git status --short > /tmp/mantle-status.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mantle-validation-${{ github.run_id }}
+          path: |
+            /tmp/mantle-*.log
+            /tmp/mantle-source.tar.gz
+            /tmp/mantle-uncommitted.patch
+          retention-days: 3
