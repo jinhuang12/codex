@@ -182,7 +182,24 @@ pub(super) async fn resolve_auth_method(
             .map_err(aws_auth_error_to_codex_error)?;
             Ok(BedrockAuthMethod::AwsSdkAuth { context })
         }
-        BedrockAuthSource::EnvAwsCredentials | BedrockAuthSource::AwsSdk => {
+        BedrockAuthSource::EnvAwsCredentials => {
+            // The selected environment source must not fall through to a profile,
+            // workload identity, or instance role when its keys disappear.
+            let access_keys = environment_access_keys(std::env::var)?;
+            let config = match endpoint {
+                BedrockEndpoint::Mantle => aws_auth_config(aws),
+                BedrockEndpoint::Runtime => runtime::aws_auth_config(aws),
+            };
+            let context = AwsAuthContext::load_with_access_keys(
+                config,
+                access_keys,
+                http_client_factory.clone(),
+            )
+            .await
+            .map_err(aws_auth_error_to_codex_error)?;
+            Ok(BedrockAuthMethod::AwsSdkAuth { context })
+        }
+        BedrockAuthSource::AwsSdk => {
             let config = match endpoint {
                 BedrockEndpoint::Mantle => aws_auth_config(aws),
                 BedrockEndpoint::Runtime => runtime::aws_auth_config(aws),
@@ -248,6 +265,23 @@ fn non_empty_env_var_from(
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn environment_access_keys(
+    env_var: impl Fn(&'static str) -> std::result::Result<String, std::env::VarError> + Copy,
+) -> Result<AwsAccessKeys> {
+    let required = |name| {
+        non_empty_env_var_from(name, env_var).ok_or_else(|| {
+            CodexErr::Fatal(format!(
+                "selected Amazon Bedrock environment credential `{name}` is no longer available"
+            ))
+        })
+    };
+    Ok(AwsAccessKeys {
+        access_key_id: required(AWS_ACCESS_KEY_ID_ENV_VAR)?,
+        secret_access_key: required(AWS_SECRET_ACCESS_KEY_ENV_VAR)?,
+        session_token: non_empty_env_var_from("AWS_SESSION_TOKEN", env_var),
+    })
 }
 
 pub(super) fn bearer_token_region(
@@ -488,6 +522,76 @@ mod tests {
             });
             assert_eq!(actual, *expected, "{variables:?}");
         }
+    }
+
+    #[test]
+    fn selected_environment_keys_fail_closed_when_missing_or_blank() {
+        for missing in [AWS_ACCESS_KEY_ID_ENV_VAR, AWS_SECRET_ACCESS_KEY_ENV_VAR] {
+            for value in [None, Some(""), Some("   ")] {
+                let result = environment_access_keys(|name| {
+                    if name == missing {
+                        value
+                            .map(str::to_string)
+                            .ok_or(std::env::VarError::NotPresent)
+                    } else {
+                        Ok("synthetic-secret-not-for-errors".to_string())
+                    }
+                });
+                let error = result.expect_err("selected source must not use the SDK chain");
+                assert!(error.to_string().contains(missing));
+                assert!(
+                    !error
+                        .to_string()
+                        .contains("synthetic-secret-not-for-errors")
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn environment_keys_sign_without_reading_a_different_profile() {
+        let keys = environment_access_keys(|name| match name {
+            AWS_ACCESS_KEY_ID_ENV_VAR => Ok("synthetic-environment-key".to_string()),
+            AWS_SECRET_ACCESS_KEY_ENV_VAR => Ok("synthetic-environment-secret".to_string()),
+            "AWS_SESSION_TOKEN" => Ok("synthetic-session-token".to_string()),
+            _ => Err(std::env::VarError::NotPresent),
+        })
+        .expect("environment keys");
+        let config = aws_auth_config(&ModelProviderAwsAuthInfo {
+            profile: Some("profile-that-must-not-be-loaded".to_string()),
+            region: Some("us-east-1".to_string()),
+            credential_export: None,
+            auth_refresh: None,
+        });
+        let context = AwsAuthContext::load_with_access_keys(
+            config,
+            keys,
+            codex_http_client::HttpClientFactory::new(
+                codex_http_client::OutboundProxyPolicy::ReqwestDefault,
+            ),
+        )
+        .await
+        .expect("explicit environment credentials");
+        let signed = context
+            .sign(AwsRequestToSign {
+                method: http::Method::POST,
+                url: "https://bedrock-mantle.us-east-1.api.aws/openai/v1/responses".to_string(),
+                headers: HeaderMap::new(),
+                body: "{}".into(),
+            })
+            .await
+            .expect("local SigV4 signing");
+        assert!(
+            signed.headers[http::header::AUTHORIZATION]
+                .to_str()
+                .expect("authorization header")
+                .contains("Credential=synthetic-environment-key/")
+        );
+        assert_eq!(
+            signed.headers["x-amz-security-token"],
+            "synthetic-session-token"
+        );
+        assert!(!signed.headers.contains_key("chatgpt-account-id"));
     }
 
     #[test]

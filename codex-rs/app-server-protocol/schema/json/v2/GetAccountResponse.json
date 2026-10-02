@@ -77,6 +77,32 @@
       ],
       "type": "string"
     },
+    "InferenceAccount": {
+      "description": "The provider that actually executes and bills model requests.",
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Account"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "modelProvider": {
+          "type": "string"
+        },
+        "requiresOpenaiAuth": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "modelProvider",
+        "requiresOpenaiAuth"
+      ],
+      "type": "object"
+    },
     "PlanType": {
       "enum": [
         "free",
@@ -129,7 +155,19 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Application identity. In Mantle remote-control mode this is the real ChatGPT account."
+    },
+    "inference": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/InferenceAccount"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Inference identity, separate from remote-control login. Omitted outside dual-identity mode."
     },
     "requiresOpenaiAuth": {
       "type": "boolean"

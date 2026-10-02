@@ -540,6 +540,7 @@ pub async fn run_main_with_transport_options(
     let bootstrap_config = config_manager
         .load_startup_config(/*fallback_cwd*/ None)
         .await?;
+    config_manager.bind_mantle_remote_control(&bootstrap_config)?;
     let bootstrap_auth =
         AuthManager::shared_from_config(&bootstrap_config, /*enable_codex_api_key_env*/ false)
             .await
@@ -556,7 +557,14 @@ pub async fn run_main_with_transport_options(
         .await
     {
         Ok(config) => config,
-        Err(err) if is_unsupported_untrusted_approval_policy_error(&err) => {
+        Err(err)
+            if bootstrap_config.remote_control_mantle
+                || err.get_ref().is_some_and(|cause| {
+                    cause.is::<codex_config::MantleRemoteControlError>()
+                        || cause.is::<codex_config::MantleRemoteControlConfigError>()
+                })
+                || is_unsupported_untrusted_approval_policy_error(&err) =>
+        {
             return Err(err);
         }
         Err(err) => {

@@ -263,6 +263,14 @@ pub async fn enable_remote_control_on_socket(
     .await
 }
 
+/// Starts manual pairing on the specified local host socket, not a separately managed daemon.
+pub async fn start_remote_control_pairing_on_socket(
+    socket_path: &Path,
+) -> Result<RemoteControlPairingStartResponse> {
+    ensure_supported_platform()?;
+    remote_control_client::start_pairing(socket_path).await
+}
+
 /// Starts a manual pairing session through an already-running daemon app-server.
 pub async fn start_remote_control_pairing() -> Result<RemoteControlPairingStartResponse> {
     ensure_supported_platform()?;

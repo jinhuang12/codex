@@ -43,6 +43,7 @@ pub(crate) struct ModelProviderRequirementsChanged;
 #[derive(Clone)]
 pub(crate) struct ConfigManager {
     codex_home: PathBuf,
+    mantle_remote_control: Arc<RwLock<Option<codex_model_provider_info::ModelProviderInfo>>>,
     cli_overrides: Arc<RwLock<Vec<(String, TomlValue)>>>,
     runtime_feature_enablement: Arc<RwLock<BTreeMap<String, bool>>>,
     loader_overrides: LoaderOverrides,
@@ -82,6 +83,7 @@ impl ConfigManager {
         let network_policy = codex_http_client::NetworkPolicyController::default();
         Self {
             codex_home,
+            mantle_remote_control: Arc::default(),
             cli_overrides: Arc::new(RwLock::new(cli_overrides)),
             runtime_feature_enablement: Arc::new(RwLock::new(BTreeMap::new())),
             loader_overrides,
@@ -94,6 +96,43 @@ impl ConfigManager {
             network_policy_reload: Arc::new(tokio::sync::Semaphore::new(/*permits*/ 1)),
             network_policy_snapshot: Arc::default(),
         }
+    }
+
+    /// Capture the host-selected Mantle route once, before accepting client requests.
+    pub(crate) fn bind_mantle_remote_control(&self, config: &Config) -> std::io::Result<()> {
+        if config.remote_control_mantle {
+            let mut binding = self.mantle_remote_control.write().map_err(|_| {
+                std::io::Error::other("Mantle remote-control route lock is unavailable")
+            })?;
+            if binding
+                .as_ref()
+                .is_some_and(|provider| provider != &config.model_provider)
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    codex_config::MantleRemoteControlError,
+                ));
+            }
+            *binding = Some(config.model_provider.clone());
+        }
+        Ok(())
+    }
+
+    fn check_mantle_remote_control(&self, config: &Config) -> std::io::Result<()> {
+        let binding = self.mantle_remote_control.read().map_err(|_| {
+            std::io::Error::other("Mantle remote-control route lock is unavailable")
+        })?;
+        if let Some(provider) = binding.as_ref()
+            && (!config.remote_control_mantle
+                || config.model_provider_id != AMAZON_BEDROCK_PROVIDER_ID
+                || &config.model_provider != provider)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Mantle remote-control inference is pinned to the host provider, AWS profile, and region. Restart the host to change the route; this request was not sent",
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn codex_home(&self) -> &Path {
@@ -228,6 +267,7 @@ impl ConfigManager {
         .await?;
         self.apply_network_policy(&mut config);
         self.apply_runtime_feature_enablement(&mut config);
+        self.check_mantle_remote_control(&config)?;
         self.apply_arg0_paths(&mut config);
         Ok(config)
     }
@@ -254,6 +294,7 @@ impl ConfigManager {
         .await?;
         self.apply_network_policy(&mut config);
         self.apply_runtime_feature_enablement(&mut config);
+        self.check_mantle_remote_control(&config)?;
         self.apply_arg0_paths(&mut config);
         Ok(config)
     }
@@ -263,6 +304,7 @@ impl ConfigManager {
         &self,
         current: &Config,
     ) -> std::io::Result<()> {
+        self.check_mantle_remote_control(current)?;
         let policy_load = self.refresh_application_network_policy().await?;
         // Existing threads retain their session route; only managed
         // requirements can invalidate it.
@@ -326,6 +368,10 @@ impl ConfigManager {
             Ok(config) => Ok(config),
             Err(error)
                 if self.strict_config
+                    || error.get_ref().is_some_and(|cause| {
+                        cause.is::<codex_config::MantleRemoteControlError>()
+                            || cause.is::<codex_config::MantleRemoteControlConfigError>()
+                    })
                     || crate::is_unsupported_untrusted_approval_policy_error(&error) =>
             {
                 Err(error)
@@ -353,6 +399,7 @@ impl ConfigManager {
             .await?;
         self.apply_network_policy(&mut config);
         self.apply_runtime_feature_enablement(&mut config);
+        self.check_mantle_remote_control(&config)?;
         self.apply_arg0_paths(&mut config);
         Ok(config)
     }
@@ -467,6 +514,7 @@ impl ConfigManager {
         self.check_application_policy_load(&policy_load)?;
         self.apply_network_policy(&mut config);
         self.apply_runtime_feature_enablement(&mut config);
+        self.check_mantle_remote_control(&config)?;
         self.apply_arg0_paths(&mut config);
         Ok(config)
     }
@@ -615,3 +663,7 @@ pub(crate) fn apply_runtime_feature_enablement(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "mantle_remote_control_tests.rs"]
+mod mantle_remote_control_tests;

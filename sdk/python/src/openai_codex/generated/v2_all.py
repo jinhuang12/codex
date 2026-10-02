@@ -8303,14 +8303,6 @@ class GatewayOAuthReadResponse(BaseModel):
     ] = None
 
 
-class GetAccountResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    account: Account | None = None
-    requires_openai_auth: Annotated[bool, Field(alias="requiresOpenaiAuth")]
-
-
 class GuardianApprovalReview(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -8547,6 +8539,15 @@ class HooksListResponse(BaseModel):
         populate_by_name=True,
     )
     data: list[HooksListEntry]
+
+
+class InferenceAccount(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    account: Account | None = None
+    model_provider: Annotated[str, Field(alias="modelProvider")]
+    requires_openai_auth: Annotated[bool, Field(alias="requiresOpenaiAuth")]
 
 
 class ListMcpServerStatusParams(BaseModel):
@@ -10948,6 +10949,25 @@ class GetAccountRateLimitsResponse(BaseModel):
             description="Multi-bucket view keyed by metered `limit_id` (for example, `codex`).",
         ),
     ] = None
+
+
+class GetAccountResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    account: Annotated[
+        Account | None,
+        Field(
+            description="Application identity. In Mantle remote-control mode this is the real ChatGPT account."
+        ),
+    ] = None
+    inference: Annotated[
+        InferenceAccount | None,
+        Field(
+            description="Inference identity, separate from remote-control login. Omitted outside dual-identity mode."
+        ),
+    ] = None
+    requires_openai_auth: Annotated[bool, Field(alias="requiresOpenaiAuth")]
 
 
 class GetAccountTokenUsageResponse(BaseModel):

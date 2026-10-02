@@ -51,6 +51,17 @@ pub mod types;
 
 pub const CONFIG_TOML_FILE: &str = "config.toml";
 
+/// A route mismatch must not trigger the app-server's permissive startup fallback.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "remote_control_mantle requires model_provider = \"amazon-bedrock\" (Mantle); inference was not sent"
+)]
+pub struct MantleRemoteControlError;
+
+#[derive(Debug, thiserror::Error)]
+#[error("invalid Mantle remote-control configuration: {0}")]
+pub struct MantleRemoteControlConfigError(#[source] pub std::io::Error);
+
 pub use application_requirements::ApplicationNetworkRequirementsToml;
 pub use application_requirements::ApplicationRequirementsToml;
 pub use auth_policy::ManagedAuthPolicy;

@@ -174,6 +174,10 @@ pub struct ConfigToml {
     /// Provider to use from the model_providers map.
     pub model_provider: Option<String>,
 
+    /// Use ChatGPT for remote-control identity and Amazon Bedrock Mantle for inference.
+    /// AWS credentials must come from a profile, the environment, or a credential command.
+    pub remote_control_mantle: Option<bool>,
+
     /// Size of the context window for the model, in tokens.
     pub model_context_window: Option<i64>,
 

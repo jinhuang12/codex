@@ -106,6 +106,8 @@ pub(super) async fn configure(
     let bootstrap_config = config_manager
         .load_startup_config(Some(config.cwd.to_path_buf()))
         .await?;
+    config_manager.bind_mantle_remote_control(config)?;
+    let enable_codex_api_key_env = enable_codex_api_key_env && !config.remote_control_mantle;
     let caller_auth = config.auth_config();
     let bootstrap_auth = codex_login::AuthConfig {
         chatgpt_base_url: Some(bootstrap_config.chatgpt_base_url.clone()),

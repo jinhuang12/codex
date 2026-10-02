@@ -555,10 +555,25 @@ pub struct GetAccountParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct GetAccountResponse {
+    /// Application identity. In Mantle remote-control mode this is the real ChatGPT account.
     pub account: Option<Account>,
+    /// Inference identity, separate from remote-control login. Omitted outside dual-identity mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub inference: Option<InferenceAccount>,
     pub requires_openai_auth: bool,
     #[experimental("account/read.workspaceRouting")]
     pub workspace_routing: Option<WorkspaceRouting>,
+}
+
+/// The provider that actually executes and bills model requests.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS, ExperimentalApi)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct InferenceAccount {
+    pub model_provider: String,
+    pub account: Option<Account>,
+    pub requires_openai_auth: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

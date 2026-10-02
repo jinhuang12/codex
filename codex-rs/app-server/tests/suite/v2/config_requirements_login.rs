@@ -166,6 +166,7 @@ command = "print-token"
     assert_eq!(
         account,
         GetAccountResponse {
+            inference: None,
             account: Some(Account::AmazonBedrock {
                 uses_codex_managed_credentials: false
             }),

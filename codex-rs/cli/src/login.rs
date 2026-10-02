@@ -212,6 +212,12 @@ pub async fn run_login_with_api_key(
     let config = load_config_or_exit(cli_config_overrides).await;
     let _login_log_guard = init_login_file_logging(&config);
     tracing::info!("starting api key login flow");
+    if config.remote_control_mantle {
+        eprintln!(
+            "Mantle remote control requires ChatGPT login. Configure AWS credentials with a profile or AWS_BEARER_TOKEN_BEDROCK; do not replace the control login with an API key."
+        );
+        std::process::exit(1);
+    }
 
     if !config
         .auth_config()
@@ -562,23 +568,24 @@ pub async fn run_logout(cli_config_overrides: CliConfigOverrides) -> ! {
     };
     drop(enterprise_guard);
 
-    let cleared_bedrock_config =
-        if let Some(paths) = ConfigEditsBuilder::bedrock_provider_config_paths_to_clear(&config) {
-            let edits = paths
-                .into_iter()
-                .map(|segments| ConfigEdit::ClearPath { segments });
-            if let Err(err) = ConfigEditsBuilder::for_config(&config)
-                .with_edits(edits)
-                .apply()
-                .await
-            {
-                eprintln!("Error clearing Amazon Bedrock configuration after logout: {err}");
-                std::process::exit(1);
-            }
-            true
-        } else {
-            false
-        };
+    let cleared_bedrock_config = if !config.remote_control_mantle
+        && let Some(paths) = ConfigEditsBuilder::bedrock_provider_config_paths_to_clear(&config)
+    {
+        let edits = paths
+            .into_iter()
+            .map(|segments| ConfigEdit::ClearPath { segments });
+        if let Err(err) = ConfigEditsBuilder::for_config(&config)
+            .with_edits(edits)
+            .apply()
+            .await
+        {
+            eprintln!("Error clearing Amazon Bedrock configuration after logout: {err}");
+            std::process::exit(1);
+        }
+        true
+    } else {
+        false
+    };
 
     if logged_out || cleared_bedrock_config {
         eprintln!("Successfully logged out");

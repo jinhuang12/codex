@@ -1,0 +1,63 @@
+name: Mantle remote control
+on:
+  push:
+    branches: [feat/mantle-remote-control]
+    paths: ['codex-rs/**', 'docs/mantle-remote-control.md', '.github/scripts/test-mantle-remote-control.sh', '.github/workflows/mantle-remote-control.yml']
+  pull_request:
+    branches: [main]
+    paths: ['codex-rs/**', 'docs/mantle-remote-control.md', '.github/scripts/test-mantle-remote-control.sh', '.github/workflows/mantle-remote-control.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mantle-remote-control-${{ github.ref }}
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+jobs:
+  validate:
+    if: github.repository == 'jinhuang12/codex'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+      RUST_MIN_STACK: '8388608'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-ci
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/codex-ci/cargo-target
+          key: mantle-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: mantle-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
+      - name: Validate host, inference, relay, and CLI
+        run: bash .github/scripts/test-mantle-remote-control.sh
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/codex-ci/cargo-target
+          key: mantle-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+      - name: Export exact validated sources
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/mantle-validation"
+          git archive --format=tar.gz --output="$RUNNER_TEMP/mantle-validation/source.tar.gz" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/mantle-validation/commit.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mantle-validation-${{ github.run_id }}
+          path: ${{ runner.temp }}/mantle-validation
+          retention-days: 3

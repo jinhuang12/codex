@@ -96,6 +96,11 @@ pub(crate) fn normalize_bedrock_catalog(mut catalog: ModelsResponse) -> ModelsRe
         model.default_service_tier = None;
         // Bedrock rejects the `search_content_types` field used by multimodal search.
         model.web_search_tool_type = WebSearchToolType::Text;
+        // Mantle rejects reasoning.summary for GPT-6.1 Sol, including when a
+        // remote client explicitly requests a detailed summary for the turn.
+        if model.slug == AMAZON_BEDROCK_GPT_6_1_SOL_MODEL_ID {
+            model.supports_reasoning_summary_parameter = false;
+        }
     }
     catalog
 }
@@ -282,6 +287,23 @@ mod tests {
     }
 
     #[test]
+    fn configured_mantle_gpt_6_1_sol_catalog_disables_reasoning_summaries() {
+        let mut sol = bundled_openai_model(GPT_6_1_SOL_OPENAI_MODEL_ID);
+        sol.slug = AMAZON_BEDROCK_GPT_6_1_SOL_MODEL_ID.to_string();
+        sol.supports_reasoning_summary_parameter = true;
+        let mut astra = bundled_openai_model(GPT_6_ASTRA_OPENAI_MODEL_ID);
+        astra.slug = AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID.to_string();
+        astra.supports_reasoning_summary_parameter = true;
+
+        let catalog = normalize_bedrock_catalog(ModelsResponse {
+            models: vec![sol, astra],
+        });
+
+        assert!(!catalog.models[0].supports_reasoning_summary_parameter);
+        assert!(catalog.models[1].supports_reasoning_summary_parameter);
+    }
+
+    #[test]
     fn gpt_5_bedrock_models_are_visible() {
         let catalog = static_model_catalog();
 
@@ -350,6 +372,10 @@ mod tests {
             expected.service_tiers.clear();
             expected.default_service_tier = None;
             expected.web_search_tool_type = WebSearchToolType::Text;
+
+            if slug == AMAZON_BEDROCK_GPT_6_1_SOL_MODEL_ID {
+                expected.supports_reasoning_summary_parameter = false;
+            }
 
             assert_eq!(
                 catalog.models.iter().find(|model| model.slug == slug),
