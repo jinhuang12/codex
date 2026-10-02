@@ -1,0 +1,81 @@
+name: Finish Mantle validation
+on:
+  push:
+    branches: [feat/mantle-remote-control]
+    paths: ['.github/workflows/finish-mantle-validation.yml']
+permissions:
+  contents: write
+jobs:
+  finish:
+    if: github.repository == 'jinhuang12/codex' && github.ref == 'refs/heads/feat/mantle-remote-control'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+      RUST_MIN_STACK: '8388608'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      AWS_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-ci
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/codex-ci/cargo-target
+          key: mantle-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: mantle-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
+      - name: Apply targeted test correction
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('codex-rs/app-server/tests/mantle_remote_control_relay.rs')
+          s = p.read_text()
+          assert 'use axum::extract::OriginalUri;' in s
+          s = s.replace('use axum::extract::OriginalUri;\n', '')
+          s = s.replace('use axum::http::HeaderMap;', 'use axum::http::HeaderMap;\nuse axum::http::Uri;')
+          s = s.replace('OriginalUri(uri): OriginalUri,', 'uri: Uri,')
+          s = s.replace('use futures::SinkExt;\n', '')
+          p.write_text(s)
+          PY
+          cd codex-rs
+          cargo fmt --all
+          cd ..
+          rm .github/workflows/finish-mantle-validation.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add codex-rs .github/workflows/finish-mantle-validation.yml
+          git commit -m 'test: fix relay URI extraction and format Mantle implementation'
+          git push origin HEAD:feat/mantle-remote-control
+      - name: Validate corrected source
+        run: bash .github/scripts/test-mantle-remote-control.sh
+      - name: Export exact sources and concise results
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/mantle-validation"
+          git archive --format=tar.gz --output="$RUNNER_TEMP/mantle-validation/source.tar.gz" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/mantle-validation/commit.txt"
+          git diff > "$RUNNER_TEMP/mantle-validation/uncommitted.patch"
+          if test -f "$RUNNER_TEMP/mantle-validation/results.txt"; then
+            cat "$RUNNER_TEMP/mantle-validation/results.txt" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mantle-validation-${{ github.run_id }}
+          path: ${{ runner.temp }}/mantle-validation
+          retention-days: 3
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/codex-ci/cargo-target
+          key: mantle-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
