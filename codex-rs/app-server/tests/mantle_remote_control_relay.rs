@@ -49,8 +49,11 @@ impl Control {
     fn record(&self, path: &str, headers: &HeaderMap) {
         self.requests.lock().expect("request log").push((
             path.to_string(),
-            headers.get("authorization").and_then(|h| h.to_str().ok())
-                .unwrap_or_default().to_string(),
+            headers
+                .get("authorization")
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or_default()
+                .to_string(),
         ));
     }
 }
@@ -128,7 +131,8 @@ impl Relay {
     }
 
     async fn response(&mut self, id: i64) -> Result<Value> {
-        self.matching(|message| message["id"] == id && message.get("method").is_none()).await
+        self.matching(|message| message["id"] == id && message.get("method").is_none())
+            .await
     }
 
     async fn closed(&mut self) -> Result<()> {
@@ -139,7 +143,8 @@ impl Relay {
                     Some(Ok(_)) => {}
                 }
             }
-        }).await?;
+        })
+        .await?;
         Ok(())
     }
 }
@@ -148,31 +153,45 @@ impl Relay {
 async fn mantle_remote_pair_tool_turn_reconnect_resume_and_logout() -> Result<()> {
     let home = TempDir::new()?;
     let mantle = MockServer::start().await;
-    let model_requests = responses::mount_response_sequence(&mantle, vec![
-        responses::sse_response(responses::sse(vec![
-            responses::ev_response_created("mantle-1"),
-            responses::ev_function_call("echo-call", "echo", "{}"),
-            responses::ev_completed("mantle-1"),
-        ])),
-        responses::sse_response(responses::sse(vec![
-            responses::ev_response_created("mantle-2"),
-            responses::ev_assistant_message("answer", "tool completed on Mantle"),
-            responses::ev_completed("mantle-2"),
-        ])),
-    ]).await;
+    let model_requests = responses::mount_response_sequence(
+        &mantle,
+        vec![
+            responses::sse_response(responses::sse(vec![
+                responses::ev_response_created("mantle-1"),
+                responses::ev_function_call("echo-call", "echo", "{}"),
+                responses::ev_completed("mantle-1"),
+            ])),
+            responses::sse_response(responses::sse(vec![
+                responses::ev_response_created("mantle-2"),
+                responses::ev_assistant_message("answer", "tool completed on Mantle"),
+                responses::ev_completed("mantle-2"),
+            ])),
+        ],
+    )
+    .await;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let control_url = format!("http://{}", listener.local_addr()?);
     let (sockets, mut socket_rx) = mpsc::channel(4);
     let requests = Arc::new(Mutex::new(Vec::new()));
-    let control = Control { sockets, requests: requests.clone() };
+    let control = Control {
+        sockets,
+        requests: requests.clone(),
+    };
     let router = Router::new()
-        .route("/backend-api/wham/remote/control/server", get(control_socket))
+        .route(
+            "/backend-api/wham/remote/control/server",
+            get(control_socket),
+        )
         .fallback(control_http)
         .with_state(control);
-    let _server = AbortOnDropHandle::new(tokio::spawn(async move {
-        axum::serve(listener, router).await
-    }));
-    std::fs::write(home.path().join("config.toml"), format!(r#"
+    let _server =
+        AbortOnDropHandle::new(tokio::spawn(
+            async move { axum::serve(listener, router).await },
+        ));
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!(
+            r#"
 remote_control_mantle = true
 model_provider = "amazon-bedrock"
 model = "openai.gpt-5.6-luna"
@@ -188,34 +207,65 @@ request_max_retries = 0
 stream_max_retries = 0
 [model_providers.amazon-bedrock.aws]
 region = "us-east-1"
-"#, mantle.uri()))?;
-    write_chatgpt_auth(home.path(), ChatGptAuthFixture::new(CONTROL_TOKEN)
-        .account_id("mantle-account").chatgpt_account_id("mantle-account")
-        .chatgpt_user_id("mantle-user").plan_type("pro"), AuthCredentialsStoreMode::File)?;
-    let mut app = TestAppServer::builder().with_codex_home(home.path()).without_auto_env()
-        .with_env_overrides(&[("AWS_BEARER_TOKEN_BEDROCK", Some(AWS_TOKEN)),
-            ("AWS_PROFILE", None), ("OPENAI_API_KEY", None), ("CODEX_API_KEY", None)])
-        .build_initialized_with_timeout(WAIT).await?;
+"#,
+            mantle.uri()
+        ),
+    )?;
+    write_chatgpt_auth(
+        home.path(),
+        ChatGptAuthFixture::new(CONTROL_TOKEN)
+            .account_id("mantle-account")
+            .chatgpt_account_id("mantle-account")
+            .chatgpt_user_id("mantle-user")
+            .plan_type("pro"),
+        AuthCredentialsStoreMode::File,
+    )?;
+    let mut app = TestAppServer::builder()
+        .with_codex_home(home.path())
+        .without_auto_env()
+        .with_env_overrides(&[
+            ("AWS_BEARER_TOKEN_BEDROCK", Some(AWS_TOKEN)),
+            ("AWS_PROFILE", None),
+            ("OPENAI_API_KEY", None),
+            ("CODEX_API_KEY", None),
+        ])
+        .build_initialized_with_timeout(WAIT)
+        .await?;
     let id = app.send_remote_control_ephemeral_enable_request().await?;
     let _: Value = timeout(WAIT, app.read_response(id)).await??;
-    let socket = timeout(WAIT, socket_rx.recv()).await?.context("relay did not connect")?;
-    let id = app.send_remote_control_pairing_start_request(RemoteControlPairingStartParams {
-        manual_code: true,
-    }).await?;
+    let socket = timeout(WAIT, socket_rx.recv())
+        .await?
+        .context("relay did not connect")?;
+    let id = app
+        .send_remote_control_pairing_start_request(RemoteControlPairingStartParams {
+            manual_code: true,
+        })
+        .await?;
     let pairing: Value = timeout(WAIT, app.read_response(id)).await??;
     assert_eq!(pairing["manualPairingCode"], "123456");
 
-    let mut relay = Relay { socket, next_seq: 0, pending: Vec::new() };
-    relay.send(json!({"id": 1, "method": "initialize", "params": {
-        "clientInfo": {"name": "mantle-remote-test", "version": "0.1.0"},
-        "capabilities": {"experimentalApi": true},
-    }})).await?;
+    let mut relay = Relay {
+        socket,
+        next_seq: 0,
+        pending: Vec::new(),
+    };
+    relay
+        .send(json!({"id": 1, "method": "initialize", "params": {
+            "clientInfo": {"name": "mantle-remote-test", "version": "0.1.0"},
+            "capabilities": {"experimentalApi": true},
+        }}))
+        .await?;
     assert!(relay.response(1).await?.get("result").is_some());
     relay.send(json!({"method": "initialized"})).await?;
-    relay.send(json!({"id": 2, "method": "account/read", "params": {}})).await?;
+    relay
+        .send(json!({"id": 2, "method": "account/read", "params": {}}))
+        .await?;
     let account = relay.response(2).await?;
     assert_eq!(account["result"]["account"]["type"], "chatgpt");
-    assert_eq!(account["result"]["inference"]["modelProvider"], "amazon-bedrock");
+    assert_eq!(
+        account["result"]["inference"]["modelProvider"],
+        "amazon-bedrock"
+    );
     assert_eq!(account["result"]["inference"]["requiresOpenaiAuth"], false);
     relay.send(json!({"id": 3, "method": "thread/start", "params": {
         "dynamicTools": [{"name": "echo", "description": "Echo a test result",
@@ -228,42 +278,90 @@ region = "us-east-1"
         "threadId": thread_id, "input": [{"type": "text", "text": "Use echo and report the result.", "textElements": []}],
     }})).await?;
     assert!(relay.response(4).await?.get("result").is_some());
-    let tool = relay.matching(|message| message["method"] == "item/tool/call").await?;
+    let tool = relay
+        .matching(|message| message["method"] == "item/tool/call")
+        .await?;
     relay.send(json!({"id": tool["id"], "result": {
         "contentItems": [{"type": "inputText", "text": "echoed-over-remote-control"}], "success": true,
     }})).await?;
-    let completed = relay.matching(|message| message["method"] == "turn/completed").await?;
+    let completed = relay
+        .matching(|message| message["method"] == "turn/completed")
+        .await?;
     assert_eq!(completed["params"]["turn"]["status"], "completed");
 
     // Reconnect the physical transport without replacing its authenticated owner or thread route.
     let next_seq = relay.next_seq;
     relay.socket.send(Message::Close(None)).await?;
     drop(relay);
-    let socket = timeout(WAIT, socket_rx.recv()).await?.context("relay did not reconnect")?;
-    let mut relay = Relay { socket, next_seq, pending: Vec::new() };
-    relay.send(json!({"id": 5, "method": "thread/resume", "params": {"threadId": thread_id}})).await?;
-    assert_eq!(relay.response(5).await?["result"]["modelProvider"], "amazon-bedrock");
-    relay.send(json!({"id": 6, "method": "thread/start", "params": {
-        "modelProvider": "openai", "config": {"remote_control_mantle": false},
-    }})).await?;
-    assert!(relay.response(6).await?["error"]["message"].as_str().context("expected route error")?.contains("Mantle"));
+    let socket = timeout(WAIT, socket_rx.recv())
+        .await?
+        .context("relay did not reconnect")?;
+    let mut relay = Relay {
+        socket,
+        next_seq,
+        pending: Vec::new(),
+    };
+    relay
+        .send(json!({"id": 5, "method": "thread/resume", "params": {"threadId": thread_id}}))
+        .await?;
+    assert_eq!(
+        relay.response(5).await?["result"]["modelProvider"],
+        "amazon-bedrock"
+    );
+    relay
+        .send(json!({"id": 6, "method": "thread/start", "params": {
+            "modelProvider": "openai", "config": {"remote_control_mantle": false},
+        }}))
+        .await?;
+    assert!(
+        relay.response(6).await?["error"]["message"]
+            .as_str()
+            .context("expected route error")?
+            .contains("Mantle")
+    );
 
     let id = app.send_logout_account_request().await?;
     let _: Value = timeout(WAIT, app.read_response(id)).await??;
     relay.closed().await?;
-    let observed = mantle.received_requests().await.context("model request log")?;
-    let inference: Vec<_> = observed.iter().filter(|r| r.url.path().ends_with("/responses")).collect();
+    let observed = mantle
+        .received_requests()
+        .await
+        .context("model request log")?;
+    let inference: Vec<_> = observed
+        .iter()
+        .filter(|r| r.url.path().ends_with("/responses"))
+        .collect();
     assert_eq!(inference.len(), 2);
     for request in &inference {
-        assert_eq!(request.headers.get("authorization").context("AWS auth")?.to_str()?, format!("Bearer {AWS_TOKEN}"));
+        assert_eq!(
+            request
+                .headers
+                .get("authorization")
+                .context("AWS auth")?
+                .to_str()?,
+            format!("Bearer {AWS_TOKEN}")
+        );
         assert!(!request.headers.contains_key("chatgpt-account-id"));
         assert!(!format!("{:?}", request.headers).contains(CONTROL_TOKEN));
     }
-    assert!(String::from_utf8_lossy(&inference[1].body).contains("echoed-over-remote-control"));
+    assert!(model_requests.requests()[1].body_contains_text("echoed-over-remote-control"));
     drop(model_requests);
     let control_requests = requests.lock().expect("control request log");
-    assert!(control_requests.iter().any(|(path, token)| path.ends_with("/server/enroll") && token == &format!("Bearer {CONTROL_TOKEN}")));
-    assert!(control_requests.iter().any(|(path, token)| path == "/websocket" && token == &format!("Bearer {RELAY_TOKEN}")));
-    assert!(control_requests.iter().all(|(path, token)| !path.ends_with("/responses") && !token.contains(AWS_TOKEN)));
+    assert!(
+        control_requests
+            .iter()
+            .any(|(path, token)| path.ends_with("/server/enroll")
+                && token == &format!("Bearer {CONTROL_TOKEN}"))
+    );
+    assert!(
+        control_requests
+            .iter()
+            .any(|(path, token)| path == "/websocket" && token == &format!("Bearer {RELAY_TOKEN}"))
+    );
+    assert!(
+        control_requests
+            .iter()
+            .all(|(path, token)| !path.ends_with("/responses") && !token.contains(AWS_TOKEN))
+    );
     Ok(())
 }

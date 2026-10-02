@@ -79,7 +79,7 @@ With the mode enabled, `account/read` describes the control account separately f
   "requiresOpenaiAuth": true,
   "inference": {
     "modelProvider": "amazon-bedrock",
-    "account": {"type": "amazonBedrock", "authMode": "awsSdk"},
+    "account": {"type": "amazonBedrock", "usesCodexManagedCredentials": false},
     "requiresOpenaiAuth": false
   }
 }
