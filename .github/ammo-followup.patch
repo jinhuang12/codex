@@ -1,0 +1,101 @@
+--- a/codex-rs/model-provider/src/teammate.rs
++++ b/codex-rs/model-provider/src/teammate.rs
+@@ -141,9 +141,7 @@
+             .and_then(|path| path.split('/').next())
+             .map(|name| format!("path:{name}"))
+             .or_else(|| {
+-                (*depth == 1)
+-                    .then(|| agent_nickname.as_ref().map(|name| format!("name:{name}")))
+-                    .flatten()
++                agent_nickname.as_ref().map(|name| format!("name:{name}"))
+             });
+         let Some(key) = key else {
+             // Legacy unnamed descendants already inherit their parent's provider config.
+@@ -167,7 +165,8 @@
+                 }
+             })
+             .await;
+-        let Some(profile) = self.select_profile(&key, *depth == 1, profiles) else {
++        let inherited = provider.aws.as_ref().and_then(|aws| aws.profile.as_deref());
++        let Some(profile) = self.select_profile(&key, *depth == 1, profiles, inherited) else {
+             return;
+         };
+         tracing::info!(agent = %key, %profile, "AMMO teammate AWS profile");
+@@ -182,7 +181,13 @@
+             .profile = Some(profile);
+     }
+ 
+-    fn select_profile(&self, key: &str, direct_teammate: bool, profiles: &[String]) -> Option<String> {
++    fn select_profile(
++        &self,
++        key: &str,
++        direct_teammate: bool,
++        profiles: &[String],
++        inherited: Option<&str>,
++    ) -> Option<String> {
+         if profiles.is_empty() {
+             return None;
+         }
+@@ -191,11 +196,17 @@
+         if let Some(profile) = state.profiles.get(key) {
+             return Some(profile.clone());
+         }
+-        if !direct_teammate {
+-            return None;
+-        }
+-        let profile = profiles[state.next % profiles.len()].clone();
+-        state.next = (state.next + 1) % profiles.len();
++        let profile = if direct_teammate {
++            let profile = profiles[state.next % profiles.len()].clone();
++            state.next = (state.next + 1) % profiles.len();
++            profile
++        } else {
++            // Remember a legacy worker's inherited account so a sender-driven cold
++            // reload cannot replace it with the chief's provider configuration.
++            inherited
++                .filter(|profile| profiles.iter().any(|available| available == profile))?
++                .to_string()
++        };
+         state.profiles.insert(key.to_string(), profile.clone());
+         Some(profile)
+     }
+--- a/codex-rs/model-provider/src/teammate_tests.rs
++++ b/codex-rs/model-provider/src/teammate_tests.rs
+@@ -168,15 +168,15 @@
+         let handles = (0..128).map(|index| {
+             let policy = &policy;
+             let profiles = &profiles;
+-            scope.spawn(move || policy.select_profile(&index.to_string(), true, profiles).expect("profile"))
++            scope.spawn(move || policy.select_profile(&index.to_string(), true, profiles, None).expect("profile"))
+         }).collect::<Vec<_>>();
+         handles.into_iter().map(|handle| handle.join().expect("join")).collect::<Vec<_>>()
+     });
+     for profile in &profiles {
+         assert_eq!(selected.iter().filter(|selected| *selected == profile).count(), 32);
+     }
+-    assert_eq!(TeammatePolicy::default().select_profile("new", true, &profiles), Some("a".to_string()));
+-    assert_eq!(policy.select_profile("unknown descendant", false, &profiles), None);
++    assert_eq!(TeammatePolicy::default().select_profile("new", true, &profiles, None), Some("a".to_string()));
++    assert_eq!(policy.select_profile("unknown descendant", false, &profiles, None), None);
+ }
+ 
+ #[test]
+@@ -189,5 +189,16 @@
+         });
+         assert!(handle.join().is_err());
+     });
+-    assert_eq!(policy.select_profile("worker", true, &csv("a,b")), None);
+-}
++    assert_eq!(policy.select_profile("worker", true, &csv("a,b"), None), None);
++}
++
++#[test]
++fn legacy_worker_remembers_inherited_profile_on_cold_reload_without_rotating() {
++    let policy = TeammatePolicy::default();
++    let profiles = csv("ammo1,ammo3");
++    assert_eq!(policy.select_profile("name:champion", true, &profiles, None), Some("ammo1".to_string()));
++    assert_eq!(policy.select_profile("name:worker", false, &profiles, Some("ammo1")), Some("ammo1".to_string()));
++    assert_eq!(policy.select_profile("name:worker", false, &profiles, Some("chief")), Some("ammo1".to_string()));
++    assert_eq!(policy.select_profile("name:other", true, &profiles, None), Some("ammo3".to_string()));
++    assert_eq!(policy.select_profile("name:unknown", false, &profiles, Some("chief")), None);
++}
