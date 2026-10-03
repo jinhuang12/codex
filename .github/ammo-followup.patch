@@ -61,6 +61,34 @@
      }
 --- a/codex-rs/model-provider/src/teammate_tests.rs
 +++ b/codex-rs/model-provider/src/teammate_tests.rs
+@@ -106,10 +106,10 @@
+     let policy = make_policy(&[("AMMO_MODE", "ssh")], &["ammo1", "ammo3"]);
+     let parent = bedrock();
+     for (path, depth, expected) in [
+-        ("/root/red-champ", 1, "ammo1"),
+-        ("/root/blue-champ", 1, "ammo3"),
+-        ("/root/red-champ/worker", 2, "ammo1"),
+-        ("/root/red-champ", 1, "ammo1"),
++        ("/root/red_champ", 1, "ammo1"),
++        ("/root/blue_champ", 1, "ammo3"),
++        ("/root/red_champ/worker", 2, "ammo1"),
++        ("/root/red_champ", 1, "ammo1"),
+         ("/root/third", 1, "ammo1"),
+     ] {
+         let mut provider = parent.clone();
+@@ -129,9 +129,9 @@
+     let policy = make_policy(&[("AMMO_MODE", "local")], &[]);
+     for (path, depth, role, armed) in [
+         ("/root/one", 1, "red-champ", true),
+-        ("/root/blue-champ", 1, "worker", true),
+-        ("/root/red-champ-extra", 1, "worker", false),
+-        ("/root/red-champ/blue-champ", 2, "blue-champ", false),
++        ("/root/blue_champ", 1, "blue-champ", true),
++        ("/root/red_champ_extra", 1, "worker", false),
++        ("/root/red_champ/blue_champ", 2, "blue-champ", false),
+         ("/root/ordinary", 1, "worker", false),
+     ] {
+         let mut provider = bedrock();
 @@ -168,15 +168,15 @@
          let handles = (0..128).map(|index| {
              let policy = &policy;
@@ -80,7 +108,7 @@
  }
  
  #[test]
-@@ -189,5 +189,16 @@
+@@ -189,5 +189,27 @@
          });
          assert!(handle.join().is_err());
      });
@@ -99,3 +127,48 @@
 +    assert_eq!(policy.select_profile("name:other", true, &profiles, None), Some("ammo3".to_string()));
 +    assert_eq!(policy.select_profile("name:unknown", false, &profiles, Some("chief")), None);
 +}
++
++#[tokio::test]
++async fn native_agent_names_match_only_when_explicitly_configured() {
++    let policy = make_policy(&[("AMMO_MODE", "local"), ("AMMO_ARM_AGENT_TYPES", "red_champ,blue_champ")], &[]);
++    for (path, armed) in [("/root/red_champ", true), ("/root/blue_champ", true), ("/root/red_champ_extra", false)] {
++        let mut provider = bedrock();
++        let mut effort = Some(ReasoningEffort::Low);
++        policy.apply(&mut provider, &mut effort, Some(&child(path, 1, "worker"))).await;
++        assert_eq!(effort, Some(if armed { ReasoningEffort::XHigh } else { ReasoningEffort::Low }));
++    }
++}
+--- a/docs/ammo-teammates.md
++++ b/docs/ammo-teammates.md
+@@ -19,7 +19,10 @@
+ 
+ For an AMMO SSH deployment, `AMMO_MODE=ssh` is enough with the default profile
+ names. Use Codex's existing custom agent definitions for `red-champ` and
+-`blue-champ`; this policy does not create roles or replace their instructions.
++`blue-champ`; this policy does not create roles or replace their instructions. Codex agent path
++names use underscores, not hyphens: an agent named `red_champ` can use the
++`red-champ` role. To match native names instead of roles, set
++`AMMO_ARM_AGENT_TYPES=red_champ,blue_champ`; matching remains exact.
+ 
+ ## Semantics
+ 
+@@ -73,7 +76,7 @@
+ An existing but expired/unusable profile still produces the normal AWS auth error;
+ this is routing, not health checking, failover, or a throttle-retry mechanism.
+ `CLAUDE_CODE_TEAMMATE_COMMAND`, `CLAUDE_CMD`, and `AMMO_LB_RR_DIR` are unnecessary
+-and are not read. Never use this to evade account restrictions or service quotas.
++and are not read.
+ 
+ ## Validation
+ 
+--- a/.github/workflows/ammo-teammates.yml
++++ b/.github/workflows/ammo-teammates.yml
+@@ -27,6 +27,8 @@
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
++      - name: Free SDK space on the ephemeral hosted runner
++        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+       - uses: ./.github/actions/setup-ci
+       - uses: actions/cache/restore@v4
+         with:
