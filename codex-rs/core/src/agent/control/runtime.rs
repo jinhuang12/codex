@@ -110,6 +110,8 @@ pub(crate) struct LocalAgentRuntime {
     pub(super) registry: Arc<AgentRegistry>,
     pub(super) residency: Arc<V2Residency>,
     pub(super) mailboxes: Arc<super::mailbox::Mailboxes>,
+    /// Per-tree AWS routing and champion effort; never mutates process credentials.
+    pub(super) teammate_policy: Arc<codex_model_provider::TeammatePolicy>,
     /// Shared by every session in this tree, including private delegates.
     pub(crate) shutdown: CancellationToken,
     shutdown_state: Arc<AgentTreeShutdownState>,
@@ -127,6 +129,7 @@ impl LocalAgentRuntime {
             registry: Arc::default(),
             residency: Arc::default(),
             mailboxes: Arc::default(),
+            teammate_policy: Arc::new(codex_model_provider::TeammatePolicy::from_env()),
             shutdown: CancellationToken::new(),
             shutdown_state: Arc::default(),
             agent_execution_limiter: Arc::default(),
