@@ -1,0 +1,89 @@
+name: Validate sticky Bedrock account balancing
+on:
+  push:
+    branches: [work/bedrock-account-validation]
+permissions:
+  contents: write
+concurrency:
+  group: bedrock-account-implementation
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+      RUST_MIN_STACK: '8388608'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare exact change on pinned main
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib, os, pathlib
+          encoded = ''.join(p.read_text() for p in sorted(pathlib.Path('.github/bedrock-account-patch').iterdir()))
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'dbef23624245ff28590442499d386bccac65c06c39fed4a72098d882f948de9b'
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'bedrock-account.patch').write_bytes(patch)
+          followup = pathlib.Path('.github/bedrock-account-followup.patch')
+          if followup.exists():
+              pathlib.Path(os.environ['RUNNER_TEMP'], 'bedrock-account-followup.patch').write_bytes(followup.read_bytes())
+          PY
+          git fetch origin 88bf5ee85c2dcba7f1b1f6f835cbd2cec0ba75a9 --depth=1
+          git switch -c feat/bedrock-account-balancing 88bf5ee85c2dcba7f1b1f6f835cbd2cec0ba75a9
+          git apply "$RUNNER_TEMP/bedrock-account.patch"
+          if [[ -f "$RUNNER_TEMP/bedrock-account-followup.patch" ]]; then
+            git apply "$RUNNER_TEMP/bedrock-account-followup.patch"
+          fi
+      - uses: ./.github/actions/setup-ci
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/codex-ci/cargo-target
+          key: bedrock-accounts-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            bedrock-accounts-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
+            ammo-teammates-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
+            mantle-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
+      - name: Format and record the test candidate
+        run: |
+          cd codex-rs
+          cargo fmt --all
+          cd ..
+          git diff --check
+          git add .
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: sticky multi-account Bedrock balancing for all sub-agents'
+          mkdir -p "$RUNNER_TEMP/bedrock-account-validation"
+          git rev-parse HEAD > "$RUNNER_TEMP/bedrock-account-validation/commit.txt"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/bedrock-account-validation/tree.txt"
+          git diff HEAD^ HEAD --binary > "$RUNNER_TEMP/bedrock-account-validation/change.patch"
+          git archive --format=tar.gz --output="$RUNNER_TEMP/bedrock-account-validation/source.tar.gz" HEAD
+      - name: Policy, signing, runtime, regressions, host compile
+        run: bash .github/scripts/test-bedrock-accounts.sh
+      - name: Publish only after all validation gates pass
+        run: |
+          git diff --exit-code
+          git push origin HEAD:refs/heads/feat/bedrock-account-balancing
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/codex-ci/cargo-target
+          key: bedrock-accounts-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bedrock-account-validation
+          path: ${{ runner.temp }}/bedrock-account-validation
+          retention-days: 7
