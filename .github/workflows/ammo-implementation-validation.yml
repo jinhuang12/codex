@@ -1,44 +1,40 @@
-name: Validate AMMO teammate implementation
+name: Validate sticky Bedrock sub-agent accounts
 on:
   push:
     branches: [work/ammo-teammates-validation]
 permissions:
   contents: write
 concurrency:
-  group: ammo-implementation-validation
+  group: sticky-bedrock-validation
   cancel-in-progress: true
 jobs:
   validate-and-publish:
-    if: github.repository == 'jinhuang12/codex'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
-      CARGO_BUILD_JOBS: '2'
-      CARGO_PROFILE_DEV_DEBUG: '0'
-      CARGO_PROFILE_TEST_DEBUG: '0'
-      CARGO_INCREMENTAL: '0'
-      RUST_MIN_STACK: '8388608'
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+      RUST_MIN_STACK: 8388608
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 3
+          fetch-depth: 2
       - name: Prepare exact change on pinned main
         shell: bash
         run: |
-          cp .github/ammo-followup.patch "$RUNNER_TEMP/ammo-followup.patch"
           python3 - <<'PY'
-          import base64, gzip, hashlib, os, pathlib
-          encoded = pathlib.Path('.github/ammo-teammates.patch.gz.b64').read_text()
-          encoded = encoded.replace('+hPvph9hQb', '+hPvph9mQb').replace('CyOkItItNZjg', 'CyOkItNZjg')
-          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
-          assert hashlib.sha256(patch).hexdigest() == '28d3aead4a8846c09a9baa6aa9ac05b3e8a40e5d9cecaf0bf23f33bf5b8cde76'
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'ammo-change.patch').write_bytes(patch)
+          import base64, hashlib, lzma, os, pathlib
+          encoded = ''.join(pathlib.Path(f'.github/lb-patch-{i}.txt').read_text() for i in range(4))
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'e5e7383de341bc0fc0d298112d0114591ebeccbcc78260ccad7c332f66c2defb'
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'lb-change.patch').write_bytes(patch)
           PY
           git fetch origin 88bf5ee85c2dcba7f1b1f6f835cbd2cec0ba75a9 --depth=1
-          git switch -c feat/ammo-teammates 88bf5ee85c2dcba7f1b1f6f835cbd2cec0ba75a9
-          git apply "$RUNNER_TEMP/ammo-change.patch"
-          git apply "$RUNNER_TEMP/ammo-followup.patch"
-      - name: Free preinstalled SDK space on the ephemeral hosted runner
+          git switch -c feat/sticky-bedrock-subagents 88bf5ee85c2dcba7f1b1f6f835cbd2cec0ba75a9
+          git apply "$RUNNER_TEMP/lb-change.patch"
+      - name: Free preinstalled SDK space on ephemeral hosted runner
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           df -h /
@@ -49,32 +45,35 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cache/codex-ci/cargo-target
-          key: ammo-teammates-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          key: sticky-bedrock-Linux-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
           restore-keys: |
-            ammo-teammates-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
-            mantle-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
-      - name: Format implementation
+            sticky-bedrock-Linux-${{ hashFiles('codex-rs/Cargo.lock') }}-
+            ammo-teammates-Linux-${{ hashFiles('codex-rs/Cargo.lock') }}-
+            mantle-Linux-${{ hashFiles('codex-rs/Cargo.lock') }}-
+      - name: Format exact implementation
         run: |
           cd codex-rs
           cargo fmt --all
           cd ..
           git diff --check
           git add .
-          git diff --cached --binary > "$RUNNER_TEMP/ammo-validated.patch"
-      - name: Run policy, actual signing, provider regression and core compile gates
+          git diff --cached --binary > "$RUNNER_TEMP/lb-validated.patch"
+      - name: Run policy, signing, restart, nested runtime and compile gates
         shell: bash
         run: |
           set -o pipefail
-          bash .github/scripts/test-ammo-teammates.sh 2>&1 | tee "$RUNNER_TEMP/ammo-validation.log"
-      - name: Publish only the passing feature
+          bash .github/scripts/test-bedrock-subagent-accounts.sh 2>&1 | tee "$RUNNER_TEMP/lb-validation.log"
+      - name: Publish only passing source on main
         shell: bash
         run: |
           git diff --exit-code
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = 88bf5ee85c2dcba7f1b1f6f835cbd2cec0ba75a9
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat: native AMMO teammate profile routing and champion effort'
-          git push origin HEAD:refs/heads/feat/ammo-teammates
-          git rev-parse HEAD > "$RUNNER_TEMP/ammo-commit.txt"
+          git commit -m 'feat: persistent account-affine load balancing for Bedrock sub-agents'
+          git rev-parse HEAD > "$RUNNER_TEMP/lb-commit.txt"
+          git rev-parse HEAD^{tree} >> "$RUNNER_TEMP/lb-commit.txt"
+          git push origin HEAD:refs/heads/feat/sticky-bedrock-subagents
       - uses: actions/cache/save@v4
         if: always()
         with:
@@ -82,13 +81,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cache/codex-ci/cargo-target
-          key: ammo-teammates-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          key: sticky-bedrock-Linux-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ammo-teammate-validation
+          name: sticky-bedrock-validation
           path: |
-            ${{ runner.temp }}/ammo-validated.patch
-            ${{ runner.temp }}/ammo-validation.log
-            ${{ runner.temp }}/ammo-commit.txt
-          retention-days: 3
+            ${{ runner.temp }}/lb-validated.patch
+            ${{ runner.temp }}/lb-validation.log
+            ${{ runner.temp }}/lb-commit.txt
+          retention-days: 7
