@@ -1,5 +1,7 @@
 # Bedrock subagent account balancing
 
+For a short setup guide covering both fork features, start with the [fork quickstart](fork-quickstart.md).
+
 This feature allocates one AWS credential slot when an independent subagent starts.
 It does not rotate an existing conversation between accounts. It works for native
 Bedrock subagents across all Codex sessions, including nested agents. The
@@ -149,6 +151,7 @@ cold resume. The default-profile regression signs requests with only a synthetic
 not send live inference requests or measure availability.
 
 Sources:
+
 - https://docs.aws.amazon.com/bedrock/latest/userguide/inference-responses-api.html
 - `codex-rs/core/src/client.rs`: encrypted reasoning and `store=false` request setup.
 - `cc-lb-wrapper.sh` supplied for this change: profile/key-file round-robin semantics.
