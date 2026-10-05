@@ -1,3 +1,18 @@
+# Codex CLI: AWS Mantle fork
+
+This is [jinhuang12/codex](https://github.com/jinhuang12/codex), a fork of [openai/codex](https://github.com/openai/codex). It adds two features to the upstream code used by this fork:
+
+| Feature                                | What changes                                                                                                                                 | Guide                                                    |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| ChatGPT Remote Control with AWS Mantle | Connect through ChatGPT while the host sends model requests to AWS Mantle. ChatGPT still handles login, pairing, and remote session traffic. | [Remote Control](docs/mantle-remote-control.md)          |
+| AWS account balancing for subagents    | Assign new independent subagents to a pool of AWS profiles or API-key files. Each agent keeps its original assignment when it resumes.       | [Subagent balancing](docs/bedrock-subagent-balancing.md) |
+
+**[Start here: build and use both features](docs/fork-quickstart.md).** Build this fork to get these changes. The installers below install upstream Codex.
+
+This build also omits reasoning summaries from model requests, including client requests for detailed summaries. Reasoning effort still applies.
+
+---
+
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">
   <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
@@ -9,7 +24,7 @@ If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="http
 
 ---
 
-## Quickstart
+## Upstream Codex quickstart
 
 ### Installing and running Codex CLI
 
@@ -73,6 +88,9 @@ You can also use Codex with an API key, but this requires [additional setup](htt
 
 ## Docs
 
+- [**Fork quickstart**](./docs/fork-quickstart.md)
+- [**ChatGPT Remote Control with AWS Mantle**](./docs/mantle-remote-control.md)
+- [**AWS account balancing for subagents**](./docs/bedrock-subagent-balancing.md)
 - [**Codex Documentation**](https://developers.openai.com/codex)
 - [**Contributing**](./docs/contributing.md)
 - [**Installing & building**](./docs/install.md)

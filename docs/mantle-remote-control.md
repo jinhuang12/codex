@@ -1,5 +1,7 @@
 # ChatGPT Remote Control with Bedrock Mantle
 
+For a short setup guide covering both fork features, start with the [fork quickstart](fork-quickstart.md).
+
 This fork adds an opt-in host mode that uses ChatGPT for Remote Control identity and Amazon Bedrock Mantle for model inference. It does not replace the native Bedrock provider or introduce an inference proxy.
 
 The setting is `remote_control_mantle = true`. The provider must be `amazon-bedrock`, which selects **Mantle**, not `amazon-bedrock-runtime`.
@@ -9,7 +11,7 @@ The setting is `remote_control_mantle = true`. The provider must be `amazon-bedr
 Build the fork, not an upstream release:
 
 ```sh
-git clone --branch feat/mantle-remote-control https://github.com/jinhuang12/codex.git
+git clone --branch main https://github.com/jinhuang12/codex.git
 cd codex/codex-rs
 cargo build --locked --release -p codex-cli
 ./target/release/codex --version
@@ -38,6 +40,10 @@ web_search = "disabled"
 sandbox_mode = "workspace-write"
 approval_policy = "on-request"
 
+[features.multi_agent_v2]
+enabled = true
+tool_namespace = "agents"
+
 [model_providers.amazon-bedrock.aws]
 profile = "your-bedrock-profile"
 region = "us-east-1"
@@ -45,7 +51,7 @@ region = "us-east-1"
 
 This model and region passed the live test described below. Model access still depends on the AWS account. An explicit AWS profile takes precedence over environment credentials. Authenticate the profile through your usual AWS process before starting the host.
 
-The native Mantle catalog disables `reasoning.summary` for GPT-6.1 Sol. A phone can request `summary = "detailed"` for a turn, which overrides the configuration default. The model capability prevents that unsupported field from reaching Mantle. Setting `model_reasoning_summary = "none"` alone did not fix the phone test. No custom `model_catalog_json` file is required by this revision.
+This fork always omits `reasoning.summary` from model requests, even if a phone requests `summary = "detailed"` for a turn. Reasoning effort still applies. No custom `model_catalog_json` file is required.
 
 ### Linux sandbox prerequisites
 
@@ -93,10 +99,10 @@ A desktop client must launch or connect to this fork's app server. A separately 
 
 There are two independent credential purposes:
 
-| Purpose | Credential | Destination |
-| --- | --- | --- |
-| Account, workspace policy, enrollment, pairing | Real ChatGPT login | Existing OpenAI account and Remote Control services |
-| Inference | Native AWS profile, SDK credentials, bearer-token environment, or configured credential command | Bedrock Mantle |
+| Purpose                                        | Credential                                                                                      | Destination                                         |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Account, workspace policy, enrollment, pairing | Real ChatGPT login                                                                              | Existing OpenAI account and Remote Control services |
+| Inference                                      | Native AWS profile, SDK credentials, bearer-token environment, or configured credential command | Bedrock Mantle                                      |
 
 This mode reserves Codex's managed login store for ChatGPT. It rejects managed Bedrock-key and OpenAI API-key login operations that would replace that identity. It does not store two managed logins in `auth.json`. For a Bedrock bearer token, provide `AWS_BEARER_TOKEN_BEDROCK` in the host process environment and omit an explicit AWS profile. Never put secret tokens into tracked configuration, issue comments, or command-line arguments.
 
@@ -112,11 +118,18 @@ With the mode enabled, `account/read` describes the control account separately f
 
 ```json
 {
-  "account": {"type": "chatgpt", "email": "user@example.com", "planType": "pro"},
+  "account": {
+    "type": "chatgpt",
+    "email": "user@example.com",
+    "planType": "pro"
+  },
   "requiresOpenaiAuth": true,
   "inference": {
     "modelProvider": "amazon-bedrock",
-    "account": {"type": "amazonBedrock", "usesCodexManagedCredentials": false},
+    "account": {
+      "type": "amazonBedrock",
+      "usesCodexManagedCredentials": false
+    },
     "requiresOpenaiAuth": false
   }
 }
@@ -152,14 +165,14 @@ The relay test also sends GPT-6.1 Sol a turn with `effort = "xhigh"` and `summar
 
 The live test used an Ubuntu 24.04 x86-64 host, the shipping ChatGPT iOS app `1.2026.266`, a real ChatGPT account, and an AWS profile with Mantle access in `us-east-1`.
 
-| Check | Observed result |
-| --- | --- |
-| Build provenance | PR source `c6e026bd9ca9b1465bbeb8e63e78524d351d411f`, stamped `0.162.0-alpha.7+mantle.c6e026bd9ca9` |
-| Separate accounts | `account/read` reported ChatGPT control identity and `amazon-bedrock` inference with `requiresOpenaiAuth = false` |
-| Pairing | The shipping phone client connected to the foreground fork through the hosted relay |
-| Phone tool turn | GPT-6.1 Sol with `xhigh` ran `pwd` successfully and returned `MANTLE_PHONE_OK` |
+| Check                  | Observed result                                                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Build provenance       | PR source `c6e026bd9ca9b1465bbeb8e63e78524d351d411f`, stamped `0.162.0-alpha.7+mantle.c6e026bd9ca9`                                                     |
+| Separate accounts      | `account/read` reported ChatGPT control identity and `amazon-bedrock` inference with `requiresOpenaiAuth = false`                                       |
+| Pairing                | The shipping phone client connected to the foreground fork through the hosted relay                                                                     |
+| Phone tool turn        | GPT-6.1 Sol with `xhigh` ran `pwd` successfully and returned `MANTLE_PHONE_OK`                                                                          |
 | Effective turn summary | The turn used `detailed`; a one-field model-catalog override disabled the unsupported summary capability. The incoming client request was not captured. |
-| Connection trace | During a later phone test, the same host process opened a TLS connection whose server name was `bedrock-mantle.us-east-1.api.aws` |
+| Connection trace       | During a later phone test, the same host process opened a TLS connection whose server name was `bedrock-mantle.us-east-1.api.aws`                       |
 
 For the traced turn, the request started at 4:15:33 PM EDT, the AWS TLS handshake was captured at 4:15:34 PM, and the reply containing `MANTLE_TRACE_20261002` completed at 4:15:40 PM. The capture also saw `chatgpt.com` connections. It retained socket metadata and handshake hostnames; it did not decrypt request bodies or inspect billing records.
 
