@@ -188,7 +188,11 @@ async fn handle_spawn_agent(
             caller: session.thread_id,
             config,
             input: AgentInput::Message {
-                message: agent_message_from_tool(message, &source),
+                message: agent_message_from_tool(
+                    message,
+                    &source,
+                    turn.config.model_provider.is_amazon_bedrock(),
+                )?,
                 mode: MessageDeliveryMode::TriggerTurn,
             },
             source: spawn_source,

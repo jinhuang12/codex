@@ -328,6 +328,7 @@ args = ["login", "--profile", "codex-bedrock"]
                 args: vec!["login".into(), "--profile".into(), "codex-bedrock".into()],
                 timeout_ms: NonZeroU64::new(300_000).expect("timeout should be non-zero"),
             }),
+            ..Default::default()
         })
     );
 }
@@ -350,6 +351,7 @@ fn test_create_amazon_bedrock_provider() {
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             }),
             wire_api: WireApi::Responses,
             query_params: None,
@@ -389,6 +391,7 @@ fn test_create_amazon_bedrock_runtime_provider_with_aws_configuration() {
             region: Some("us-west-2".to_string()),
             credential_export: None,
             auth_refresh: None,
+            ..Default::default()
         }));
 
     assert_eq!(
@@ -405,6 +408,7 @@ fn test_create_amazon_bedrock_runtime_provider_with_aws_configuration() {
                 region: Some("us-west-2".to_string()),
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             }),
             Some(maplit::hashmap! {
                 AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_HEADER.to_string() =>
@@ -529,6 +533,7 @@ fn test_merge_configured_model_providers_applies_amazon_bedrock_aws_override() {
                 region: Some("us-west-2".to_string()),
                 credential_export: Some(credential_export.clone()),
                 auth_refresh: Some(auth_refresh.clone()),
+                ..Default::default()
             }),
             ..ModelProviderInfo::default()
         },
@@ -543,6 +548,7 @@ fn test_merge_configured_model_providers_applies_amazon_bedrock_aws_override() {
         region: Some("us-west-2".to_string()),
         credential_export: Some(credential_export),
         auth_refresh: Some(auth_refresh),
+        ..Default::default()
     });
 
     assert_eq!(
@@ -561,6 +567,7 @@ fn test_merge_configured_model_providers_applies_runtime_overrides_independently
         region: Some("eu-west-1".to_string()),
         credential_export: None,
         auth_refresh: None,
+        ..Default::default()
     };
     let configured_model_providers = std::collections::HashMap::from([(
         AMAZON_BEDROCK_RUNTIME_PROVIDER_ID.to_string(),
@@ -599,6 +606,7 @@ fn test_merge_configured_model_providers_applies_amazon_bedrock_transport_overri
                 region: Some("us-west-2".to_string()),
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             }),
             http_headers: Some(maplit::hashmap! {
                 "x-example-header".to_string() => "value".into(),
@@ -618,6 +626,7 @@ fn test_merge_configured_model_providers_applies_amazon_bedrock_transport_overri
         region: Some("us-west-2".to_string()),
         credential_export: None,
         auth_refresh: None,
+        ..Default::default()
     });
     expected_provider
         .http_headers
@@ -644,6 +653,7 @@ fn test_merge_configured_model_providers_rejects_amazon_bedrock_non_default_fiel
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             }),
             ..ModelProviderInfo::default()
         },
@@ -671,6 +681,7 @@ fn test_merge_configured_model_providers_allows_amazon_bedrock_default_fields() 
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             }),
             wire_api: WireApi::Responses,
             ..ModelProviderInfo::default()
@@ -694,6 +705,7 @@ fn test_validate_provider_aws_rejects_conflicting_auth() {
             region: None,
             credential_export: None,
             auth_refresh: None,
+            ..Default::default()
         }),
         env_key: Some("AWS_BEARER_TOKEN_BEDROCK".to_string()),
         supports_websockets: false,
@@ -714,6 +726,7 @@ fn test_validate_provider_aws_rejects_websockets() {
             region: None,
             credential_export: None,
             auth_refresh: None,
+            ..Default::default()
         }),
         requires_openai_auth: false,
         supports_websockets: true,
@@ -749,6 +762,7 @@ fn test_validate_provider_aws_auth_refresh_command() {
                     args: Vec::new(),
                     timeout_ms: NonZeroU64::new(300_000).expect("timeout should be non-zero"),
                 }),
+                ..Default::default()
             }));
 
         assert_eq!(provider.validate(), expected);
@@ -808,6 +822,7 @@ fn test_validate_provider_aws_credential_export_command() {
                     args: Vec::new(),
                     timeout_ms: NonZeroU64::new(300_000).expect("timeout should be non-zero"),
                 }),
+                ..Default::default()
             }));
 
         assert_eq!(provider.validate(), expected);

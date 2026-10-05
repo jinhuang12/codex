@@ -1,5 +1,6 @@
 //! Applies captured Multi-Agent V2 catalog overrides and namespaces to tool specifications.
-//! Parameter schemas retain harness-owned encryption annotations; execution is unchanged.
+//! Parameter schemas retain harness-owned encryption annotations except for native
+//! Bedrock task messages, which must be portable across accounts.
 
 use crate::session::session::Session;
 use crate::tools::context::ToolInvocation;
@@ -21,6 +22,7 @@ pub(crate) const MULTI_AGENT_V2_NAMESPACE_DESCRIPTION: &str =
 pub(super) fn multi_agent_v2_handler(
     handler: impl CoreToolRuntime + 'static,
     namespace: Option<&str>,
+    plaintext_messages: bool,
     description_override: Option<&str>,
     parameters_override: Option<&str>,
 ) -> Arc<dyn CoreToolRuntime> {
@@ -47,12 +49,17 @@ pub(super) fn multi_agent_v2_handler(
         tracing::warn!(tool = %handler.tool_name(), reason, "Invalid catalog tool parameters; using bundled parameters");
     }
     let parameters_override = parameters_override.and_then(Result::ok);
-    if namespace.is_none() && description_override.is_none() && parameters_override.is_none() {
+    if !plaintext_messages
+        && namespace.is_none()
+        && description_override.is_none()
+        && parameters_override.is_none()
+    {
         return Arc::new(handler);
     }
     Arc::new(MultiAgentV2ToolOverrides {
         handler: Arc::new(handler),
         namespace: namespace.map(str::to_owned),
+        plaintext_messages,
         description_override: description_override.map(str::to_owned),
         parameters_override,
     })
@@ -61,6 +68,7 @@ pub(super) fn multi_agent_v2_handler(
 struct MultiAgentV2ToolOverrides {
     handler: Arc<dyn CoreToolRuntime>,
     namespace: Option<String>,
+    plaintext_messages: bool,
     description_override: Option<String>,
     parameters_override: Option<JsonSchema>,
 }
@@ -82,6 +90,16 @@ impl ToolExecutor<ToolInvocation> for MultiAgentV2ToolOverrides {
             }
             if let Some(parameters) = &self.parameters_override {
                 tool.parameters.clone_from(parameters);
+            }
+            // Apply after catalog overrides: protected task arguments cannot cross AWS accounts.
+            if self.plaintext_messages
+                && let Some(message) = tool
+                    .parameters
+                    .properties
+                    .as_mut()
+                    .and_then(|properties| properties.get_mut("message"))
+            {
+                message.encrypted = None;
             }
         }
         match (&self.namespace, spec) {
@@ -129,5 +147,34 @@ impl CoreToolRuntime for MultiAgentV2ToolOverrides {
         &self,
     ) -> Option<Box<dyn crate::tools::registry::ToolArgumentDiffConsumer>> {
         self.handler.create_diff_consumer()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::handlers::multi_agents_v2::SendMessageHandler;
+
+    #[test]
+    fn bedrock_plaintext_messages_override_catalog_encryption() {
+        for plaintext_messages in [false, true] {
+            let handler = multi_agent_v2_handler(
+                SendMessageHandler,
+                None,
+                plaintext_messages,
+                None,
+                Some(
+                    r#"{"type":"object","properties":{"target":{"type":"string"},"message":{"type":"string","encrypted":true}},"required":["target","message"],"additionalProperties":false}"#,
+                ),
+            );
+            let ToolSpec::Function(tool) = handler.spec() else {
+                panic!("expected function");
+            };
+            let message = &tool.parameters.properties.unwrap()["message"];
+            assert_eq!(
+                message.encrypted,
+                if plaintext_messages { None } else { Some(true) }
+            );
+        }
     }
 }

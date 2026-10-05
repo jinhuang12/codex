@@ -1,20 +1,21 @@
-name: AMMO teammates
+name: Bedrock subagents
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'codex-rs/core/src/agent/**'
-      - 'codex-rs/model-provider/**'
-      - '.github/scripts/test-ammo-teammates.sh'
-      - '.github/workflows/ammo-teammates.yml'
+      - 'codex-rs/**'
+      - 'docs/bedrock-subagent-balancing.md'
+      - 'scripts/test-bedrock-subagents.sh'
+      - '.github/workflows/bedrock-subagents.yml'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: ammo-teammates-${{ github.ref }}
+  group: bedrock-subagents-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   validate:
+    if: github.repository == 'jinhuang12/codex'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -27,8 +28,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Free SDK space on the ephemeral hosted runner
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
       - uses: ./.github/actions/setup-ci
       - uses: actions/cache/restore@v4
         with:
@@ -36,11 +35,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cache/codex-ci/cargo-target
-          key: ammo-teammates-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          key: bedrock-subagents-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
           restore-keys: |
-            ammo-teammates-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
+            bedrock-subagents-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
             mantle-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
-      - run: bash .github/scripts/test-ammo-teammates.sh
+      - name: Validate routing, credentials, message transport, and relay
+        run: bash scripts/test-bedrock-subagents.sh
       - uses: actions/cache/save@v4
         if: always()
         with:
@@ -48,4 +48,4 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cache/codex-ci/cargo-target
-          key: ammo-teammates-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          key: bedrock-subagents-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}

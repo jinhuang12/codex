@@ -36,6 +36,7 @@ const AWS_DEFAULT_REGION_ENV_VAR: &str = "AWS_DEFAULT_REGION";
 pub(super) enum BedrockAuthSource {
     CommandBearerToken,
     CredentialExport,
+    ConfiguredApiKeyFile,
     ConfiguredAwsProfile,
     ManagedBearerToken,
     ManagedAccessKeys,
@@ -63,6 +64,12 @@ pub(super) fn auth_source(
         .is_some_and(|aws| aws.credential_export.is_some())
     {
         BedrockAuthSource::CredentialExport
+    } else if provider_info
+        .aws
+        .as_ref()
+        .is_some_and(|aws| aws.api_key_file.is_some())
+    {
+        BedrockAuthSource::ConfiguredApiKeyFile
     } else if provider_info
         .aws
         .as_ref()
@@ -135,6 +142,16 @@ pub(super) async fn resolve_auth_method(
                 token: auth.api_key.clone(),
                 region: auth.region.clone(),
             })
+        }
+        BedrockAuthSource::ConfiguredApiKeyFile => {
+            let path = aws.api_key_file.as_ref().ok_or_else(|| {
+                CodexErr::Fatal(
+                    "selected Amazon Bedrock API key file is no longer configured".to_string(),
+                )
+            })?;
+            let token = read_api_key_file(path)?;
+            let region = bearer_token_region(aws, std::env::var)?;
+            Ok(BedrockAuthMethod::EnvBearerToken { token, region })
         }
         BedrockAuthSource::EnvBearerToken => {
             let token = non_empty_env_var_from(AWS_BEARER_TOKEN_BEDROCK_ENV_VAR, std::env::var)
@@ -255,6 +272,39 @@ pub(super) async fn resolve_region(
         | BedrockAuthMethod::EnvBearerToken { region, .. } => Ok(region),
         BedrockAuthMethod::AwsSdkAuth { context } => Ok(context.region().to_string()),
     }
+}
+
+/// Read a token without echoing its contents in errors or logs.
+pub(super) fn read_api_key_file(path: &std::path::Path) -> Result<String> {
+    use std::io::Read;
+    let error = || {
+        CodexErr::Fatal("cannot read a valid Amazon Bedrock API key file; restore the selected account's key (no account failover)".to_string())
+    };
+    if !path.is_absolute() {
+        return Err(CodexErr::InvalidRequest(
+            "Amazon Bedrock API key files must use absolute paths".to_string(),
+        ));
+    }
+    if !std::fs::metadata(path).map_err(|_| error())?.is_file() {
+        return Err(error());
+    }
+    let file = std::fs::File::open(path).map_err(|_| error())?;
+    if !file.metadata().map_err(|_| error())?.is_file() {
+        return Err(error());
+    }
+    let mut value = String::new();
+    file.take(16_385)
+        .read_to_string(&mut value)
+        .map_err(|_| error())?;
+    let token = value.trim();
+    if token.is_empty()
+        || value.len() > 16_384
+        || token.bytes().any(|b| b.is_ascii_whitespace())
+        || http::HeaderValue::from_str(token).is_err()
+    {
+        return Err(error());
+    }
+    Ok(token.to_string())
 }
 
 fn non_empty_env_var_from(
@@ -409,6 +459,7 @@ mod tests {
                 region: Some("us-west-2".to_string()),
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             }));
         let credential_export_provider =
             ModelProviderInfo::create_amazon_bedrock_provider(Some(ModelProviderAwsAuthInfo {
@@ -420,6 +471,7 @@ mod tests {
                     timeout_ms: NonZeroU64::new(30_000).expect("timeout should be non-zero"),
                 }),
                 auth_refresh: None,
+                ..Default::default()
             }));
         let managed_auth =
             AuthManager::from_auth_for_testing(CodexAuth::BedrockApiKey(BedrockApiKeyAuth {
@@ -562,6 +614,7 @@ mod tests {
             region: Some("us-east-1".to_string()),
             credential_export: None,
             auth_refresh: None,
+            ..Default::default()
         });
         let context = AwsAuthContext::load_with_access_keys(
             config,
@@ -603,6 +656,7 @@ mod tests {
                 region: Some(" us-west-2 ".to_string()),
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             },
             |name| match name {
                 AWS_REGION_ENV_VAR => Ok("eu-west-1".to_string()),
@@ -636,6 +690,7 @@ mod tests {
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             },
             |name| match name {
                 AWS_REGION_ENV_VAR => Ok(" eu-central-1 ".to_string()),
@@ -655,6 +710,7 @@ mod tests {
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             },
             |name| match name {
                 AWS_DEFAULT_REGION_ENV_VAR => Ok("ap-northeast-1".to_string()),
@@ -674,6 +730,7 @@ mod tests {
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             },
             missing_env_var,
         )

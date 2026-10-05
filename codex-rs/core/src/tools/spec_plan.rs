@@ -1300,6 +1300,7 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut Too
     let turn_context = context.turn_context;
     if collab_tools_enabled(turn_context, context.model_info) {
         if multi_agent_v2_enabled(turn_context) {
+            let plaintext_messages = turn_context.config.model_provider.is_amazon_bedrock();
             let model_messages = ResolvedModelMessages::from_model(context.model_info);
             let spawn_agent_description =
                 model_messages.multi_agent_tool_description_override("spawn_agent");
@@ -1341,6 +1342,7 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut Too
                         spawn_agent_description.map(str::to_owned),
                     ),
                     tool_namespace,
+                    plaintext_messages,
                     // Spawn composes the selected description with inheritance and usage guidance.
                     /*description_override*/
                     None,
@@ -1353,6 +1355,7 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut Too
                     multi_agent_v2_handler(
                         SendMessageHandlerV2,
                         tool_namespace,
+                        plaintext_messages,
                         model_messages.multi_agent_tool_description_override("send_message"),
                         model_messages.multi_agent_tool_parameters_override("send_message"),
                     ),
@@ -1362,6 +1365,7 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut Too
                     multi_agent_v2_handler(
                         FollowupTaskHandlerV2,
                         tool_namespace,
+                        plaintext_messages,
                         model_messages.multi_agent_tool_description_override("followup_task"),
                         model_messages.multi_agent_tool_parameters_override("followup_task"),
                     ),
@@ -1373,6 +1377,7 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut Too
                     multi_agent_v2_handler(
                         WaitAgentHandlerV2::new(context.wait_agent_timeouts),
                         tool_namespace,
+                        plaintext_messages,
                         model_messages.multi_agent_tool_description_override("wait_agent"),
                         model_messages.multi_agent_tool_parameters_override("wait_agent"),
                     ),
@@ -1383,6 +1388,7 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut Too
                 multi_agent_v2_handler(
                     InterruptAgentHandler,
                     tool_namespace,
+                    plaintext_messages,
                     model_messages.multi_agent_tool_description_override("interrupt_agent"),
                     model_messages.multi_agent_tool_parameters_override("interrupt_agent"),
                 ),
@@ -1392,6 +1398,7 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut Too
                 multi_agent_v2_handler(
                     ListAgentsHandlerV2,
                     tool_namespace,
+                    plaintext_messages,
                     model_messages.multi_agent_tool_description_override("list_agents"),
                     model_messages.multi_agent_tool_parameters_override("list_agents"),
                 ),

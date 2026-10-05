@@ -3316,3 +3316,143 @@ async fn interrupted_fork_snapshot_uses_persisted_mid_turn_history_without_live_
         1,
     );
 }
+
+/// Exercises the central startup hook, not just the allocation helper.
+#[tokio::test]
+async fn bedrock_subagent_startup_and_cold_resume_keep_account_binding() {
+    use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_1_SOL_MODEL_ID;
+    use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
+    use codex_model_provider_info::ModelProviderAwsAuthInfo;
+
+    let temp = tempdir().expect("home");
+    let mut config = test_config().await;
+    config.codex_home = temp.path().join("codex-home").abs();
+    config.cwd = config.codex_home.abs();
+    std::fs::create_dir_all(&config.codex_home).expect("home");
+    let chief = temp.path().join("chief");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    for path in [&chief, &a, &b] {
+        std::fs::write(path, "synthetic-token").expect("key");
+    }
+    config.model_provider_id = AMAZON_BEDROCK_PROVIDER_ID.to_string();
+    config.model = Some(AMAZON_BEDROCK_GPT_6_1_SOL_MODEL_ID.to_string());
+    config.model_provider =
+        ModelProviderInfo::create_amazon_bedrock_provider(Some(ModelProviderAwsAuthInfo {
+            region: Some("us-east-1".to_string()),
+            api_key_file: Some(chief.clone()),
+            subagent_api_key_files: vec![a.clone(), b.clone()],
+            ..Default::default()
+        }));
+    let make_manager = |config: &Config| {
+        ThreadManager::with_models_provider_and_home_for_tests(
+            CodexAuth::from_api_key("unused-openai-key"),
+            config.model_provider.clone(),
+            config.codex_home.to_path_buf(),
+            Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+        )
+    };
+    let manager = make_manager(&config);
+    let root = manager
+        .start_thread(StartThreadOptions {
+            environments: Some(Vec::new()),
+            ..StartThreadOptions::new(config.clone())
+        })
+        .await
+        .expect("root startup");
+    assert_eq!(
+        root.thread
+            .session
+            .get_config()
+            .await
+            .model_provider
+            .aws
+            .as_ref()
+            .expect("AWS")
+            .api_key_file
+            .as_ref(),
+        Some(&chief)
+    );
+    let mut child_rollouts = Vec::new();
+    for expected in [&a, &b] {
+        let child = manager
+            .start_thread(StartThreadOptions {
+                environments: Some(Vec::new()),
+                session_source: Some(SessionSource::SubAgent(SubAgentSource::Other(
+                    "test_worker".to_string(),
+                ))),
+                history_mode: Some(ThreadHistoryMode::Legacy),
+                ..StartThreadOptions::new(config.clone())
+            })
+            .await
+            .expect("child startup");
+        assert_eq!(
+            child
+                .thread
+                .session
+                .get_config()
+                .await
+                .model_provider
+                .aws
+                .as_ref()
+                .expect("AWS")
+                .api_key_file
+                .as_ref(),
+            Some(expected)
+        );
+        child.thread.ensure_rollout_materialized().await;
+        child
+            .thread
+            .flush_rollout()
+            .await
+            .expect("persist child history");
+        child_rollouts.push((
+            child.thread_id,
+            child.thread.rollout_path().expect("child rollout"),
+        ));
+    }
+    let report = manager
+        .shutdown_all_threads_bounded(Duration::from_secs(10))
+        .await;
+    assert!(report.submit_failed.is_empty());
+    assert!(report.timed_out.is_empty());
+    drop(manager);
+    config
+        .model_provider
+        .aws
+        .as_mut()
+        .expect("AWS")
+        .subagent_api_key_files
+        .clear();
+    let manager = make_manager(&config);
+    let resumed = manager
+        .resume_legacy_thread_from_rollout(
+            config,
+            child_rollouts[1].1.clone(),
+            Arc::clone(&manager.state.auth_manager),
+            None,
+            ClientMcpExtensions::default(),
+        )
+        .await
+        .expect("cold resume with disabled pool");
+    assert_eq!(resumed.thread_id, child_rollouts[1].0);
+    assert_eq!(
+        resumed
+            .thread
+            .session
+            .get_config()
+            .await
+            .model_provider
+            .aws
+            .as_ref()
+            .expect("AWS")
+            .api_key_file
+            .as_ref(),
+        Some(&b)
+    );
+    let report = manager
+        .shutdown_all_threads_bounded(Duration::from_secs(10))
+        .await;
+    assert!(report.submit_failed.is_empty());
+    assert!(report.timed_out.is_empty());
+}

@@ -2294,6 +2294,20 @@ impl ThreadManagerState {
         };
         let attachment_source =
             forked_from_thread_id.filter(|_| matches!(&initial_history, InitialHistory::Forked(_)));
+        let bedrock_history_provider = if matches!(&initial_history, InitialHistory::Forked(_)) {
+            match forked_from_thread_id
+                .or_else(|| initial_history.forked_from_id())
+                .or(parent_thread_id)
+            {
+                Some(id) => match self.get_thread(id).await {
+                    Ok(thread) => Some(thread.session.get_config().await.model_provider.clone()),
+                    Err(_) => None,
+                },
+                None => None,
+            }
+        } else {
+            None
+        };
         let spawn_result = Session::spawn(SessionSpawnArgs {
             startup,
             config,
@@ -2310,6 +2324,7 @@ impl ThreadManagerState {
             code_mode_session_provider: Arc::clone(&self.code_mode_session_provider),
             extensions,
             conversation_history: initial_history,
+            bedrock_history_provider,
             disabled_plugin_ids,
             requested_history_mode: history_mode,
             fork_persistence,

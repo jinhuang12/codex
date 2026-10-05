@@ -7,6 +7,10 @@ mod mantle;
 mod region;
 mod runtime;
 mod runtime_catalog;
+mod subagents;
+pub use subagents::BedrockSubagentContext;
+pub use subagents::restore_bedrock_subagent_binding;
+pub use subagents::route_bedrock_subagent;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -91,6 +95,7 @@ impl AmazonBedrockModelProvider {
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             });
         let auth_source = auth::auth_source(&provider_info, auth_manager.as_deref(), std::env::var);
         let credential_export = if auth_source == auth::BedrockAuthSource::CredentialExport {
@@ -179,6 +184,7 @@ impl AmazonBedrockModelProvider {
             | auth::BedrockAuthSource::ManagedAccessKeys => self.managed_auth(),
             auth::BedrockAuthSource::CredentialExport
             | auth::BedrockAuthSource::ConfiguredAwsProfile
+            | auth::BedrockAuthSource::ConfiguredApiKeyFile
             | auth::BedrockAuthSource::EnvBearerToken
             | auth::BedrockAuthSource::EnvAwsCredentials
             | auth::BedrockAuthSource::AwsSdk => None,
@@ -319,6 +325,7 @@ impl ModelProvider for AmazonBedrockModelProvider {
             | auth::BedrockAuthSource::ManagedAccessKeys => self.auth_manager.clone(),
             auth::BedrockAuthSource::CredentialExport
             | auth::BedrockAuthSource::ConfiguredAwsProfile
+            | auth::BedrockAuthSource::ConfiguredApiKeyFile
             | auth::BedrockAuthSource::EnvBearerToken
             | auth::BedrockAuthSource::EnvAwsCredentials
             | auth::BedrockAuthSource::AwsSdk => None,
@@ -514,6 +521,7 @@ mod tests {
                 args: vec!["login".into()],
                 timeout_ms: NonZeroU64::new(1_000).expect("timeout should be non-zero"),
             }),
+            ..Default::default()
         });
         let provider = AmazonBedrockModelProvider::new(provider_info, /*auth_manager*/ None);
 
@@ -546,6 +554,7 @@ mod tests {
             region: Some("us-west-2".to_string()),
             credential_export: None,
             auth_refresh: None,
+            ..Default::default()
         });
         let regional_provider =
             AmazonBedrockModelProvider::new(regional_provider_info, /*auth_manager*/ None);
@@ -576,6 +585,7 @@ mod tests {
                 args: vec!["login".into()],
                 timeout_ms: NonZeroU64::new(1_000).expect("timeout should be non-zero"),
             }),
+            ..Default::default()
         };
         let provider = AmazonBedrockModelProvider::new(
             ModelProviderInfo::create_amazon_bedrock_provider(Some(aws.clone())),
@@ -699,6 +709,7 @@ mod tests {
                 region: Some("us-east-1".to_string()),
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             })),
             Some(manager),
         );

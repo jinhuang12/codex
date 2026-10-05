@@ -881,6 +881,7 @@ mod tests {
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             })),
             Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
                 "openai-api-key",
@@ -953,6 +954,7 @@ mod tests {
                 ),
                 timeout_ms: NonZeroU64::new(10_000).expect("timeout should be non-zero"),
             }),
+            ..Default::default()
         };
         let provider_info = ModelProviderInfo::create_amazon_bedrock_provider(Some(aws.clone()));
 

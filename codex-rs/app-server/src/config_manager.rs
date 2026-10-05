@@ -305,6 +305,45 @@ impl ConfigManager {
         current: &Config,
     ) -> std::io::Result<()> {
         self.check_mantle_remote_control(current)?;
+        self.check_thread_provider_requirements(current).await
+    }
+
+    /// Existing threads may use an account allocated and pinned by the host.
+    /// Request/config overrides still pass the strict host-only check above.
+    pub(crate) async fn check_pinned_thread_model_provider(
+        &self,
+        thread_id: codex_protocol::ThreadId,
+        current: &Config,
+    ) -> std::io::Result<()> {
+        if let Err(original_error) = self.check_mantle_remote_control(current) {
+            let provider = self
+                .mantle_remote_control
+                .read()
+                .map_err(|_| std::io::Error::other("Mantle route lock is unavailable"))?
+                .clone();
+            if !current.remote_control_mantle
+                || current.model_provider_id != AMAZON_BEDROCK_PROVIDER_ID
+            {
+                return Err(original_error);
+            }
+            let Some(provider) = provider else {
+                return Err(original_error);
+            };
+            let expected = codex_model_provider::restore_bedrock_subagent_binding(
+                &self.codex_home,
+                thread_id,
+                provider,
+            )
+            .await
+            .map_err(std::io::Error::other)?;
+            if expected.as_ref() != Some(&current.model_provider) {
+                return Err(original_error);
+            }
+        }
+        self.check_thread_provider_requirements(current).await
+    }
+
+    async fn check_thread_provider_requirements(&self, current: &Config) -> std::io::Result<()> {
         let policy_load = self.refresh_application_network_policy().await?;
         // Existing threads retain their session route; only managed
         // requirements can invalidate it.

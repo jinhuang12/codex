@@ -228,7 +228,10 @@ async fn build_tool_call_uses_namespace_for_registry_name() -> anyhow::Result<()
     );
     assert_eq!(call.call_id, "call-namespace");
     assert_eq!(call.encrypted_function_args, Some(Vec::new()));
-    assert_eq!(call.direct_source(), ToolCallSource::Direct);
+    assert_eq!(
+        call.direct_source(false, Some("collaboration")),
+        ToolCallSource::Direct
+    );
     match call.payload {
         ToolPayload::Function { arguments } => {
             assert_eq!(arguments, "{}");
@@ -648,4 +651,49 @@ fn namespace_function_names(specs: &[ToolSpec], namespace_name: &str) -> Vec<Str
             | ToolSpec::Namespace(_) => None,
         })
         .unwrap_or_default()
+}
+
+#[test]
+fn bedrock_plaintext_messages_classify_metadata_and_namespace() {
+    for namespace in [
+        None,
+        Some(""),
+        Some("functions"),
+        Some("collaboration"),
+        Some("agents"),
+    ] {
+        for tool in ["spawn_agent", "send_message", "followup_task"] {
+            for encrypted_args in [None, Some(Vec::new()), Some(vec!["message".to_string()])] {
+                let call = ToolRouter::build_tool_call(ResponseItem::FunctionCall {
+                    id: None,
+                    name: tool.into(),
+                    namespace: namespace.map(str::to_owned),
+                    call_id: "call".into(),
+                    arguments: "{}".into(),
+                    encrypted_function_args: encrypted_args.clone(),
+                    internal_chat_message_metadata_passthrough: None,
+                })
+                .unwrap()
+                .unwrap();
+                let expected = if encrypted_args.as_ref().is_none_or(Vec::is_empty) {
+                    ToolCallSource::DirectPlaintextMessage
+                } else {
+                    ToolCallSource::Direct
+                };
+                assert_eq!(call.direct_source(true, namespace), expected);
+                assert_eq!(
+                    call.direct_source(true, Some("unrelated")),
+                    ToolCallSource::Direct
+                );
+                let legacy_expected = if namespace == Some("collaboration")
+                    && encrypted_args.as_ref().is_some_and(Vec::is_empty)
+                {
+                    ToolCallSource::DirectPlaintextMessage
+                } else {
+                    ToolCallSource::Direct
+                };
+                assert_eq!(call.direct_source(false, namespace), legacy_expected);
+            }
+        }
+    }
 }

@@ -2664,8 +2664,12 @@
     },
     "ModelProviderAwsAuthInfo": {
       "additionalProperties": false,
-      "description": "AWS SigV4 auth configuration for a model provider.",
+      "description": "AWS authentication and optional subagent account pool for a model provider.",
       "properties": {
+        "api_key_file": {
+          "description": "File containing a Bedrock bearer token. Takes precedence over `profile`.",
+          "type": "string"
+        },
         "auth_refresh": {
           "allOf": [
             {
@@ -2689,6 +2693,20 @@
         "region": {
           "description": "AWS region to use for provider-specific endpoints.",
           "type": "string"
+        },
+        "subagent_api_key_files": {
+          "description": "Bearer-token files to append to the subagent account pool. Each file must continue to identify the same AWS account and Region.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subagent_profiles": {
+          "description": "Named profiles to rotate across newly created, independent subagents. Each profile must continue to identify the same AWS account.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"

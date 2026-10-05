@@ -183,6 +183,7 @@ fn credential_export_errors_distinguish_configuration_failures_from_retryable_au
                 timeout_ms: NonZeroU64::new(5_000).expect("non-zero timeout"),
             }),
             auth_refresh: None,
+            ..Default::default()
         })),
         /*auth_manager*/ None,
     );

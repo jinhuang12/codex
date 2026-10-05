@@ -472,14 +472,6 @@ impl LocalAgentControl {
                 })?;
             config.model_provider_id = stored_model_provider;
         }
-        self.runtime
-            .teammate_policy
-            .apply(
-                &mut config.model_provider,
-                &mut config.model_reasoning_effort,
-                Some(&session_source),
-            )
-            .await;
         let parent_thread_id = owner_thread_id
             .or_else(|| initial_history.get_resumed_parent_thread_id())
             .or(stored_parent_thread_id);
@@ -649,7 +641,7 @@ impl LocalAgentControl {
 
     pub(super) async fn spawn_agent_internal(
         &self,
-        mut config: Config,
+        config: Config,
         initial_input: SpawnInitialInput,
         session_source: Option<SessionSource>,
         options: SpawnAgentOptions,
@@ -734,14 +726,6 @@ impl LocalAgentControl {
             }
             other => (other, AgentMetadata::default()),
         };
-        self.runtime
-            .teammate_policy
-            .apply(
-                &mut config.model_provider,
-                &mut config.model_reasoning_effort,
-                session_source.as_ref(),
-            )
-            .await;
         let notification_source = session_source.clone();
 
         // The same `LocalAgentControl` is sent to spawn the thread.
@@ -1374,7 +1358,7 @@ impl LocalAgentControl {
 
     async fn resume_single_agent_from_rollout(
         &self,
-        mut config: Config,
+        config: Config,
         thread_id: ThreadId,
         session_source: SessionSource,
     ) -> CodexResult<(ThreadId, MultiAgentVersion)> {
@@ -1436,14 +1420,6 @@ impl LocalAgentControl {
             )?,
             other => (other, AgentMetadata::default()),
         };
-        self.runtime
-            .teammate_policy
-            .apply(
-                &mut config.model_provider,
-                &mut config.model_reasoning_effort,
-                Some(&session_source),
-            )
-            .await;
         let notification_source = session_source.clone();
         let inherited_environments = self
             .inherited_environments_for_source(&state, Some(&session_source))

@@ -535,7 +535,7 @@ impl TurnRequestProcessor {
         self.ensure_direct_input_allowed(&request_id, thread.as_ref())
             .await?;
         self.config_manager
-            .check_thread_model_provider(thread.config().await.as_ref())
+            .check_pinned_thread_model_provider(thread_id, thread.config().await.as_ref())
             .await
             .map_err(|error| config_load_error(&error))?;
         if let Some(tool_output) = &params.tool_output {
@@ -1027,16 +1027,16 @@ impl TurnRequestProcessor {
         request_id: &ConnectionRequestId,
         params: TurnSteerParams,
     ) -> Result<TurnSteerResponse, JSONRPCErrorError> {
-        let (_, thread) = self
-            .load_thread(&params.thread_id)
-            .await
-            .inspect_err(|error| {
-                self.track_error_response(request_id, error, /*error_type*/ None);
-            })?;
+        let (thread_id, thread) =
+            self.load_thread(&params.thread_id)
+                .await
+                .inspect_err(|error| {
+                    self.track_error_response(request_id, error, /*error_type*/ None);
+                })?;
         self.ensure_direct_input_allowed(request_id, thread.as_ref())
             .await?;
         self.config_manager
-            .check_thread_model_provider(thread.config().await.as_ref())
+            .check_pinned_thread_model_provider(thread_id, thread.config().await.as_ref())
             .await
             .map_err(|error| config_load_error(&error))?;
 
@@ -1557,11 +1557,14 @@ impl TurnRequestProcessor {
             delivery,
         } = params;
 
-        let (_, parent_thread) = self.load_thread(&thread_id).await?;
+        let (loaded_thread_id, parent_thread) = self.load_thread(&thread_id).await?;
         self.ensure_direct_input_allowed(request_id, parent_thread.as_ref())
             .await?;
         self.config_manager
-            .check_thread_model_provider(parent_thread.config().await.as_ref())
+            .check_pinned_thread_model_provider(
+                loaded_thread_id,
+                parent_thread.config().await.as_ref(),
+            )
             .await
             .map_err(|error| config_load_error(&error))?;
         let (review_request, display_text, target_prompt) =

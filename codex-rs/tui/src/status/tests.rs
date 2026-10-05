@@ -762,6 +762,7 @@ async fn status_uses_server_provider_id_and_auth_requirement() {
             region: Some("eu-west-1".to_string()),
             credential_export: None,
             auth_refresh: None,
+            ..Default::default()
         }));
     config.model_provider.base_url =
         Some("https://bedrock-mantle.us-east-1.api.aws/openai/v1".to_string());

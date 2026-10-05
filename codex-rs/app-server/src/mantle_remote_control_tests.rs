@@ -2,6 +2,81 @@ use super::*;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
+#[tokio::test]
+async fn mantle_pool_accepts_host_pins_but_rejects_client_route_overrides() {
+    use codex_model_provider::{BedrockSubagentContext, route_bedrock_subagent};
+    use codex_protocol::ThreadId;
+    let home = TempDir::new().expect("home");
+    let manager = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
+    let mut config = mantle_config(home.path()).await;
+    let chief = home.path().join("chief-key");
+    let child_key = home.path().join("child-key");
+    for path in [&chief, &child_key] {
+        std::fs::write(path, "synthetic-token").expect("key");
+    }
+    let aws = config.model_provider.aws.as_mut().expect("AWS");
+    aws.profile = None;
+    aws.api_key_file = Some(chief);
+    aws.subagent_api_key_files = vec![child_key];
+    manager
+        .bind_mantle_remote_control(&config)
+        .expect("host binding");
+    let root_id = ThreadId::new();
+    let context = |id: ThreadId, parent: Option<ThreadId>| BedrockSubagentContext {
+        thread_id: id,
+        is_new: true,
+        is_subagent: parent.is_some(),
+        parent_id: parent,
+        affinity_source: None,
+        source_provider: None,
+    };
+    let mut root = config.clone();
+    root.model_provider = route_bedrock_subagent(
+        home.path(),
+        context(root_id, None),
+        config.model_provider.clone(),
+        None,
+    )
+    .await
+    .expect("root pin");
+    manager
+        .check_thread_model_provider(&root)
+        .await
+        .expect("implicit endpoint remains valid");
+    let child_id = ThreadId::new();
+    let mut child = config.clone();
+    child.model_provider = route_bedrock_subagent(
+        home.path(),
+        context(child_id, Some(root_id)),
+        config.model_provider.clone(),
+        None,
+    )
+    .await
+    .expect("child pin");
+    assert!(
+        manager.check_thread_model_provider(&child).await.is_err(),
+        "client cannot choose child account"
+    );
+    manager
+        .check_pinned_thread_model_provider(child_id, &child)
+        .await
+        .expect("host-pinned thread");
+    assert!(
+        manager
+            .check_pinned_thread_model_provider(ThreadId::new(), &child)
+            .await
+            .is_err(),
+        "pin belongs to one thread"
+    );
+    child.model_provider.base_url = Some("https://api.openai.com/v1".into());
+    assert!(
+        manager
+            .check_pinned_thread_model_provider(child_id, &child)
+            .await
+            .is_err()
+    );
+}
+
 async fn mantle_config(home: &Path) -> Config {
     ConfigBuilder::default()
         .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
