@@ -1,3 +1,4 @@
+pub(crate) mod bedrock_subagents;
 pub(crate) mod startup;
 
 use crate::WithTurnExtensionData;
@@ -448,6 +449,8 @@ pub(crate) struct SessionSpawnArgs {
     pub(crate) code_mode_session_provider: Arc<dyn codex_code_mode::CodeModeSessionProvider>,
     pub(crate) extensions: Arc<codex_extension_api::ExtensionRegistry<crate::config::Config>>,
     pub(crate) conversation_history: InitialHistory,
+    /// Live owner of inherited provider state; saved bindings cover offline forks.
+    pub(crate) bedrock_history_provider: Option<codex_model_provider_info::ModelProviderInfo>,
     pub(crate) disabled_plugin_ids: Option<Vec<String>>,
     pub(crate) requested_history_mode: Option<ThreadHistoryMode>,
     pub(crate) fork_persistence: ForkPersistence,
@@ -547,7 +550,7 @@ impl Session {
     async fn spawn_internal(args: SessionSpawnArgs) -> CodexResult<(Arc<Self>, SessionIo)> {
         let SessionSpawnArgs {
             startup,
-            config,
+            mut config,
             allow_provider_model_fallback,
             instructions,
             installation_id,
@@ -561,6 +564,7 @@ impl Session {
             code_mode_session_provider,
             extensions,
             conversation_history,
+            bedrock_history_provider,
             disabled_plugin_ids,
             requested_history_mode,
             fork_persistence,
@@ -581,7 +585,7 @@ impl Session {
             thread_extension_init,
             turn_extension_init,
             client_mcp_extensions,
-            reserved_thread_id,
+            mut reserved_thread_id,
             analytics_events_client,
             image_store,
             thread_store,
@@ -644,6 +648,43 @@ impl Session {
             )
         };
 
+        // All native spawn paths, including inline delegates, pass this boundary.
+        // Persist the selected identity before a provider or model request exists.
+        let thread_id = match &conversation_history {
+            InitialHistory::Resumed(resumed) => resumed.conversation_id,
+            _ => *reserved_thread_id
+                .get_or_insert_with(|| agent_control.runtime().generate_thread_id()),
+        };
+        let affinity_source = if bedrock_subagents::requires_account_affinity(
+            &conversation_history,
+            &fork_persistence,
+        ) {
+            let source = forked_from_thread_id
+                .or_else(|| conversation_history.forked_from_id())
+                .or(parent_thread_id);
+            if source.is_none() && config.model_provider.is_amazon_bedrock() {
+                return Err(CodexErr::InvalidRequest(
+                    "cannot identify the source of account-bound fork history".to_string(),
+                ));
+            }
+            source
+        } else {
+            None
+        };
+        config.model_provider = codex_model_provider::route_bedrock_subagent(
+            &config.codex_home,
+            codex_model_provider::BedrockSubagentContext {
+                thread_id,
+                is_new: !matches!(&conversation_history, InitialHistory::Resumed(_)),
+                is_subagent: parent_thread_id.is_some() || session_source.is_non_root_agent(),
+                parent_id: parent_thread_id,
+                affinity_source,
+                source_provider: bedrock_history_provider,
+            },
+            config.model_provider.clone(),
+            Some(Arc::clone(&auth_manager)),
+        )
+        .await?;
         let mut config = Arc::new(config);
         let refresh_strategy = if session_source.is_non_root_agent() {
             codex_models_manager::manager::RefreshStrategy::Offline

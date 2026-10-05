@@ -21,6 +21,7 @@ fn aws_auth_config_uses_bedrock_service() {
             region: Some(" eu-west-1 ".to_string()),
             credential_export: None,
             auth_refresh: None,
+            ..Default::default()
         }),
         AwsAuthConfig {
             profile: Some("runtime-profile".to_string()),

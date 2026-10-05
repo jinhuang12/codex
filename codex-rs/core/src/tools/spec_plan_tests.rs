@@ -3409,3 +3409,45 @@ async fn hosted_web_search_and_standalone_image_generation_follow_runtime_gates(
     bedrock_with_standalone_web_search.assert_visible_contains(&["web_search"]);
     bedrock_with_standalone_web_search.assert_visible_lacks(&["web"]);
 }
+
+#[tokio::test]
+async fn bedrock_plaintext_messages_in_all_collaboration_schemas() {
+    for namespace in [None, Some("collaboration"), Some("agents")] {
+        let plan = probe(|turn| {
+            set_feature(turn, Feature::MultiAgentV2, true);
+            update_config(turn, |config| {
+                config.multi_agent_v2.tool_namespace = namespace.map(str::to_owned);
+            });
+            use_bedrock_provider(turn);
+        })
+        .await;
+        for tool_name in ["spawn_agent", "send_message", "followup_task"] {
+            let tool = match namespace {
+                Some(namespace) => {
+                    let ToolSpec::Namespace(spec) = plan.visible_spec(namespace) else {
+                        panic!("expected namespace");
+                    };
+                    spec.tools
+                        .iter()
+                        .find_map(|tool| match tool {
+                            ResponsesApiNamespaceTool::Function(tool) if tool.name == tool_name => {
+                                Some(tool)
+                            }
+                            _ => None,
+                        })
+                        .expect("missing message tool")
+                }
+                None => {
+                    let ToolSpec::Function(tool) = plan.visible_spec(tool_name) else {
+                        panic!("expected function");
+                    };
+                    tool
+                }
+            };
+            assert_eq!(
+                tool.parameters.properties.as_ref().unwrap()["message"].encrypted,
+                None
+            );
+        }
+    }
+}

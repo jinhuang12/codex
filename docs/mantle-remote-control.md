@@ -158,12 +158,12 @@ The live test used an Ubuntu 24.04 x86-64 host, the shipping ChatGPT iOS app `1.
 | Separate accounts | `account/read` reported ChatGPT control identity and `amazon-bedrock` inference with `requiresOpenaiAuth = false` |
 | Pairing | The shipping phone client connected to the foreground fork through the hosted relay |
 | Phone tool turn | GPT-6.1 Sol with `xhigh` ran `pwd` successfully and returned `MANTLE_PHONE_OK` |
-| Phone-requested summary | The phone sent `detailed`; a one-field model-catalog override disabled the unsupported summary capability |
+| Effective turn summary | The turn used `detailed`; a one-field model-catalog override disabled the unsupported summary capability. The incoming client request was not captured. |
 | Connection trace | During a later phone test, the same host process opened a TLS connection whose server name was `bedrock-mantle.us-east-1.api.aws` |
 
 For the traced turn, the request started at 4:15:33 PM EDT, the AWS TLS handshake was captured at 4:15:34 PM, and the reply containing `MANTLE_TRACE_20261002` completed at 4:15:40 PM. The capture also saw `chatgpt.com` connections. It retained socket metadata and handshake hostnames; it did not decrypt request bodies or inspect billing records.
 
-This revision moves the tested one-field catalog override into the native provider and uses a stable fork version suffix. The live results above describe the earlier binary plus that override. The new source revision must also pass its regression tests; the earlier live test is not a claim that all checks on a later commit passed.
+This revision includes the tested catalog override in the native provider and uses a stable fork version suffix. This fork also always omits `reasoning.summary` from model requests, regardless of model capability, config, or client turn overrides. Reasoning effort is preserved. The live results above describe the earlier binary plus the catalog override. They do not validate this later source revision.
 
 This is a successful basic phone/tool test, not full production qualification. Live approval prompts, interruption, automatic restart, account revocation, and AWS request-log auditing remain unverified. Local relay tests cover reconnect and logout, but those tests do not replace live checks of those behaviors.
 
@@ -173,6 +173,6 @@ This is a successful basic phone/tool test, not full production qualification. L
 - **Mantle binding error:** a client/profile/config reload tried to change the captured provider definition. Restore it or restart with the intended configuration.
 - **AWS access or region error:** fix the selected AWS credential source or model access. ChatGPT login does not grant AWS access.
 - **The phone requires a newer host:** check the running fork's version. A `0.0.0` build is rejected even when its source is current; rebuild this branch and restart only that host.
-- **Unsupported `reasoning.summary` for GPT-6.1 Sol:** rebuild with the native catalog fix and restart the host. A configuration default alone cannot override the phone's per-turn request.
+- **Unsupported `reasoning.summary`:** rebuild with the request-level summary override and restart the host. The rebuilt fork omits this parameter even if a client or saved thread requests it.
 - **`bwrap` missing or user namespace denied:** complete the Linux sandbox prerequisites above and rerun the sandbox check.
 - **Remote Control remains unavailable in the shipping client:** distinguish host logs from client UI and hosted-service restrictions. This fork cannot change a closed client or grant server-side enrollment privileges.

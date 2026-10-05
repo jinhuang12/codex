@@ -208,6 +208,7 @@ async fn amazon_bedrock_managed_access_keys_sign_requests() -> anyhow::Result<()
             region: Some("us-east-1".to_string()),
             credential_export: None,
             auth_refresh: None,
+            ..Default::default()
         }));
     provider.base_url = Some(format!("{}/v1", server.uri()));
 
@@ -322,6 +323,7 @@ async fn amazon_bedrock_credential_export_precedence_and_caching() -> anyhow::Re
                 &invocations_path,
             )?),
             auth_refresh: None,
+            ..Default::default()
         }));
     provider.base_url = Some(format!("{}/v1", server.uri()));
     provider.request_max_retries = Some(0);
@@ -546,6 +548,7 @@ async fn amazon_bedrock_aws_auth_refresh_resigns() -> anyhow::Result<()> {
                 ),
                 timeout_ms: NonZeroU64::new(30_000).expect("timeout should be non-zero"),
             }),
+            ..Default::default()
         }));
     provider.base_url = Some(format!("{}/v1", server.uri()));
     provider.request_max_retries = Some(0);

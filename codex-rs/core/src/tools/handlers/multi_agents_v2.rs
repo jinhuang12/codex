@@ -54,13 +54,54 @@ pub(crate) async fn emit_sub_agent_activity(
 fn agent_message_from_tool(
     message: String,
     source: &crate::tools::context::ToolCallSource,
-) -> AgentMessage {
+    bedrock_plaintext_messages: bool,
+) -> Result<AgentMessage, FunctionCallError> {
+    use crate::tools::context::ToolCallSource;
+    if bedrock_plaintext_messages {
+        return match source {
+            ToolCallSource::Direct => Err(FunctionCallError::RespondToModel(
+                "Bedrock agent messages must be plain text. Retry this tool call with an ordinary text message, without encrypted arguments.".to_string(),
+            )),
+            ToolCallSource::DirectPlaintextMessage | ToolCallSource::CodeMode { .. } => {
+                Ok(AgentMessage::Plaintext(message))
+            }
+        };
+    }
     if matches!(
         source,
         crate::tools::context::ToolCallSource::DirectPlaintextMessage
     ) {
-        AgentMessage::Plaintext(message)
+        Ok(AgentMessage::Plaintext(message))
     } else {
-        AgentMessage::Encrypted(message)
+        Ok(AgentMessage::Encrypted(message))
+    }
+}
+
+#[cfg(test)]
+mod message_transport_tests {
+    use super::*;
+    use crate::tools::context::ToolCallSource;
+
+    #[test]
+    fn bedrock_plaintext_messages_reject_marked_ciphertext() {
+        assert!(
+            agent_message_from_tool("protected".into(), &ToolCallSource::Direct, true).is_err()
+        );
+        for source in [
+            ToolCallSource::DirectPlaintextMessage,
+            ToolCallSource::CodeMode {
+                cell_id: "cell".into(),
+                runtime_tool_call_id: "call".into(),
+            },
+        ] {
+            assert!(
+                matches!(agent_message_from_tool("task".into(), &source, true).unwrap(),
+                AgentMessage::Plaintext(value) if value == "task")
+            );
+        }
+        assert!(
+            matches!(agent_message_from_tool("protected".into(), &ToolCallSource::Direct, false).unwrap(),
+            AgentMessage::Encrypted(value) if value == "protected")
+        );
     }
 }

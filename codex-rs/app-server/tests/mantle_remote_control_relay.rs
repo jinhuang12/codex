@@ -146,6 +146,19 @@ impl Relay {
 
 #[tokio::test]
 async fn mantle_remote_pair_tool_turn_reconnect_resume_and_logout() -> Result<()> {
+    run_mantle_remote_tool_turn("openai.gpt-6.1-sol", "xhigh", "xhigh").await
+}
+
+#[tokio::test]
+async fn mantle_remote_astra_ignores_detailed_summary_and_preserves_effort() -> Result<()> {
+    run_mantle_remote_tool_turn("openai.gpt-6-astra", "ultra", "xhigh").await
+}
+
+async fn run_mantle_remote_tool_turn(
+    model: &str,
+    effort: &str,
+    expected_wire_effort: &str,
+) -> Result<()> {
     let home = TempDir::new()?;
     let mantle = MockServer::start().await;
     let model_requests = responses::mount_response_sequence(
@@ -189,7 +202,7 @@ async fn mantle_remote_pair_tool_turn_reconnect_resume_and_logout() -> Result<()
             r#"
 remote_control_mantle = true
 model_provider = "amazon-bedrock"
-model = "openai.gpt-6.1-sol"
+model = "{model}"
 model_reasoning_summary = "none"
 chatgpt_base_url = "{control_url}/backend-api"
 cli_auth_credentials_store = "file"
@@ -201,6 +214,7 @@ shell_snapshot = false
 base_url = "{}/v1"
 [model_providers.amazon-bedrock.aws]
 region = "us-east-1"
+subagent_profiles = ["missing-synthetic-profile"]
 "#,
             mantle.uri()
         ),
@@ -275,11 +289,11 @@ region = "us-east-1"
     }})).await?;
     let thread = relay.response(3).await?;
     assert_eq!(thread["result"]["modelProvider"], "amazon-bedrock");
-    assert_eq!(thread["result"]["model"], "openai.gpt-6.1-sol");
+    assert_eq!(thread["result"]["model"], model);
     let thread_id = thread["result"]["thread"]["id"].clone();
     relay.send(json!({"id": 4, "method": "turn/start", "params": {
         "threadId": thread_id, "input": [{"type": "text", "text": "Use echo and report the result.", "textElements": []}],
-        "effort": "xhigh", "summary": "detailed",
+        "effort": effort, "summary": "detailed",
     }})).await?;
     assert!(relay.response(4).await?.get("result").is_some());
     let tool = relay
@@ -348,8 +362,8 @@ region = "us-east-1"
         assert!(!request.headers.contains_key("chatgpt-account-id"));
         assert!(!format!("{:?}", request.headers).contains(CONTROL_TOKEN));
         let body: Value = request.body_json()?;
-        assert_eq!(body["model"], "openai.gpt-6.1-sol");
-        assert_eq!(body["reasoning"]["effort"], "xhigh");
+        assert_eq!(body["model"], model);
+        assert_eq!(body["reasoning"]["effort"], expected_wire_effort);
         assert_eq!(body["reasoning"].get("summary"), None);
     }
     assert!(model_requests.requests()[1].body_contains_text("echoed-over-remote-control"));

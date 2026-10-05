@@ -870,15 +870,14 @@ impl ModelClient {
         &self,
         model_info: &ModelInfo,
         effort: Option<ReasoningEffortConfig>,
-        summary: ReasoningSummaryConfig,
+        _summary: ReasoningSummaryConfig,
     ) -> Reasoning {
         Reasoning {
             effort: effort
                 .or_else(|| model_info.default_reasoning_level.clone())
                 .map(|effort| model_info.resolve_reasoning_effort(effort)),
-            summary: (model_info.supports_reasoning_summary_parameter
-                && summary != ReasoningSummaryConfig::None)
-                .then_some(summary),
+            // This fork always omits reasoning summaries, including client turn overrides.
+            summary: None,
             // When Responses Lite is disabled, omit context so Responses uses the default,
             // which is currently `current_turn`.
             context: model_info

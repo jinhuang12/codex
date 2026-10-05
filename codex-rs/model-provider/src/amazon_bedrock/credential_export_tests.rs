@@ -272,6 +272,7 @@ async fn credential_export_reuses_cache_and_coalesces_refreshes() -> io::Result<
             region: Some("us-west-2".to_string()),
             credential_export: Some(exporter.config.clone()),
             auth_refresh: None,
+            ..Default::default()
         })),
         /*auth_manager*/ None,
     );

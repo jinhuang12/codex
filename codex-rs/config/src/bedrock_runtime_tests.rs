@@ -25,6 +25,7 @@ region = "us-west-2"
             region: Some("us-west-2".to_string()),
             credential_export: None,
             auth_refresh: None,
+            ..Default::default()
         })
     );
 }

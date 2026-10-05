@@ -27,6 +27,7 @@ use std::fmt;
 use std::num::NonZeroU64;
 use std::path::Component;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::PoisonError;
 use std::sync::RwLock;
 use std::time::Duration;
@@ -201,10 +202,21 @@ pub struct ModelProviderInfo {
     pub include_internal_metadata: bool,
 }
 
-/// AWS SigV4 auth configuration for a model provider.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema)]
+/// AWS authentication and optional subagent account pool for a model provider.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ModelProviderAwsAuthInfo {
+    /// File containing a Bedrock bearer token. Takes precedence over `profile`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_file: Option<PathBuf>,
+    /// Named profiles to rotate across newly created, independent subagents.
+    /// Each profile must continue to identify the same AWS account.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subagent_profiles: Vec<String>,
+    /// Bearer-token files to append to the subagent account pool.
+    /// Each file must continue to identify the same AWS account and Region.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subagent_api_key_files: Vec<PathBuf>,
     /// AWS profile name to use. When unset, the AWS SDK default chain decides.
     pub profile: Option<String>,
     /// AWS region to use for provider-specific endpoints.
@@ -578,6 +590,7 @@ other non-default provider fields are not supported"
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             })),
             wire_api: WireApi::Responses,
             query_params: None,

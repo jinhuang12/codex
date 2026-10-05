@@ -188,12 +188,12 @@ impl ThreadQueueRequestProcessor {
         request_id: &ConnectionRequestId,
         params: ThreadQueueStartParams,
     ) -> Result<ThreadQueueStartResponse, JSONRPCErrorError> {
-        let (_, loaded_thread, source) = self.require_thread(&params.thread_id).await?;
+        let (thread_id, loaded_thread, source) = self.require_thread(&params.thread_id).await?;
         ensure_direct_input_allowed(loaded_thread.as_deref(), &source)?;
         let thread = loaded_thread
             .ok_or_else(|| invalid_request("resume the thread before starting a queued message"))?;
         self.config_manager
-            .check_thread_model_provider(thread.config().await.as_ref())
+            .check_pinned_thread_model_provider(thread_id, thread.config().await.as_ref())
             .await
             .map_err(|error| config_load_error(&error))?;
         let submission = self

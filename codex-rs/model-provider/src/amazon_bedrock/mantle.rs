@@ -122,6 +122,7 @@ mod tests {
                 region: None,
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             }),
             AwsAuthConfig {
                 profile: Some("codex-bedrock".to_string()),
@@ -139,6 +140,7 @@ mod tests {
                 region: Some(" us-west-2 ".to_string()),
                 credential_export: None,
                 auth_refresh: None,
+                ..Default::default()
             }),
             AwsAuthConfig {
                 profile: None,

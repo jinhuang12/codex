@@ -42,17 +42,32 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
-    pub(crate) fn direct_source(&self) -> ToolCallSource {
-        if self.tool_name.namespace.as_deref() == Some("collaboration")
-            && matches!(
-                self.tool_name.name.as_str(),
-                "spawn_agent" | "send_message" | "followup_task"
-            )
-            && self
-                .encrypted_function_args
-                .as_ref()
-                .is_some_and(Vec::is_empty)
-        {
+    pub(crate) fn direct_source(
+        &self,
+        bedrock_plaintext_messages: bool,
+        collaboration_namespace: Option<&str>,
+    ) -> ToolCallSource {
+        let is_message_tool = matches!(
+            self.tool_name.name.as_str(),
+            "spawn_agent" | "send_message" | "followup_task"
+        );
+        let plaintext = if bedrock_plaintext_messages {
+            self.tool_name.clone().with_default_namespace().namespace
+                == ToolName::new(collaboration_namespace.map(str::to_owned), "")
+                    .with_default_namespace()
+                    .namespace
+                && self
+                    .encrypted_function_args
+                    .as_ref()
+                    .is_none_or(Vec::is_empty)
+        } else {
+            self.tool_name.namespace.as_deref() == Some("collaboration")
+                && self
+                    .encrypted_function_args
+                    .as_ref()
+                    .is_some_and(Vec::is_empty)
+        };
+        if is_message_tool && plaintext {
             ToolCallSource::DirectPlaintextMessage
         } else {
             ToolCallSource::Direct
