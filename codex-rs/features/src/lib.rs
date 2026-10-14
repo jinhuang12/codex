@@ -124,6 +124,8 @@ pub enum Feature {
     CodeMode,
     /// Removed compatibility flag for the configurable code-mode exec yield timeout.
     CodeModeBufferedExec,
+    /// Compatibility flag; code-mode tool descriptions already precede declarations.
+    CodeModeToolDescriptionFirst,
     /// Run JavaScript code mode in the standalone host process.
     CodeModeHost,
     /// Establish the code-mode host connection during session startup.
@@ -132,6 +134,8 @@ pub enum Feature {
     CodeModeInterrupt,
     /// Restrict model-visible tools to code mode entrypoints (`exec`, `wait`).
     CodeModeOnly,
+    /// Desktop compatibility switch that disables the multi-agent v2 wait tool.
+    AeonWaitAgentDisabled,
     /// Use the single unified PTY-backed exec tool.
     UnifiedExec,
     /// Allow unified exec commands to allocate an interactive terminal.
@@ -630,6 +634,9 @@ impl Features {
                 "js_repl_tools_only" => {
                     continue;
                 }
+                "code_mode_tool_description_first" => {
+                    continue;
+                }
                 "remote_control" | "remote_compaction_v2" => {
                     continue;
                 }
@@ -1103,6 +1110,12 @@ pub const FEATURES: &[FeatureSpec] = &[
         default_enabled: false,
     },
     FeatureSpec {
+        id: Feature::CodeModeToolDescriptionFirst,
+        key: "code_mode_tool_description_first",
+        stage: Stage::Removed,
+        default_enabled: false,
+    },
+    FeatureSpec {
         id: Feature::CodeModeHost,
         key: "code_mode_host",
         stage: Stage::Stable,
@@ -1130,6 +1143,12 @@ pub const FEATURES: &[FeatureSpec] = &[
         id: Feature::CodeModeOnly,
         key: "code_mode_only",
         stage: Stage::UnderDevelopment,
+        default_enabled: false,
+    },
+    FeatureSpec {
+        id: Feature::AeonWaitAgentDisabled,
+        key: "aeon_wait_agent_disabled",
+        stage: Stage::Stable,
         default_enabled: false,
     },
     FeatureSpec {

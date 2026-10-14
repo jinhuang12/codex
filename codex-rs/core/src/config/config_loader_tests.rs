@@ -757,6 +757,44 @@ async fn strict_config_rejects_unknown_feature_cli_override_key() {
 }
 
 #[tokio::test]
+async fn strict_config_accepts_desktop_compatibility_feature_overrides() {
+    for description_first in [false, true] {
+        for wait_disabled in [false, true] {
+            for wait_enabled in [false, true] {
+                let tmp = tempdir().expect("tempdir");
+                let config = ConfigBuilder::default()
+                    .codex_home(tmp.path().to_path_buf())
+                    .fallback_cwd(Some(tmp.path().to_path_buf()))
+                    .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+                    .cli_overrides(vec![
+                        (
+                            "features.code_mode_tool_description_first".to_string(),
+                            TomlValue::Boolean(description_first),
+                        ),
+                        (
+                            "features.aeon_wait_agent_disabled".to_string(),
+                            TomlValue::Boolean(wait_disabled),
+                        ),
+                        (
+                            "features.multi_agent_v2.wait_agent_enabled".to_string(),
+                            TomlValue::Boolean(wait_enabled),
+                        ),
+                    ])
+                    .strict_config(/*strict_config*/ true)
+                    .build()
+                    .await
+                    .expect("desktop feature overrides should load");
+                assert_eq!(
+                    config.multi_agent_v2.wait_agent_enabled,
+                    wait_enabled && !wait_disabled
+                );
+                assert!(!config.features.enabled(Feature::CodeMode));
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn strict_config_rejects_unknown_feature_user_config_key() {
     let tmp = tempdir().expect("tempdir");
     let contents = r#"[features]

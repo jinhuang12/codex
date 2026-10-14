@@ -65,6 +65,28 @@ fn executor_capability_discovery_is_an_opt_in_map_feature() {
 }
 
 #[test]
+fn code_mode_tool_description_first_is_a_compatibility_noop() {
+    for enabled in [false, true] {
+        let features_toml: FeaturesToml =
+            toml::from_str(&format!("code_mode_tool_description_first = {enabled}"))
+                .expect("desktop toggle should deserialize");
+        let features = Features::from_sources(
+            FeatureConfigSource {
+                features: Some(&features_toml),
+                ..Default::default()
+            },
+            FeatureConfigSource::default(),
+            FeatureOverrides::default(),
+        );
+        assert_eq!(features, Features::with_defaults());
+    }
+    assert!(crate::is_known_feature_key(
+        "code_mode_tool_description_first"
+    ));
+    assert!(toml::from_str::<FeaturesToml>("code_mode_tool_description_first = 'true'").is_err());
+}
+
+#[test]
 fn cwd_relative_turn_diffs_is_an_opt_in_map_feature() {
     let mut features = Features::with_defaults();
     assert!(!features.enabled(Feature::CwdRelativeTurnDiffs));

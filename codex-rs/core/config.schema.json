@@ -715,6 +715,9 @@
           "default": null,
           "description": "Optional feature toggles scoped to this profile.",
           "properties": {
+            "aeon_wait_agent_disabled": {
+              "type": "boolean"
+            },
             "agent_message_board": {
               "type": "boolean"
             },
@@ -798,6 +801,9 @@
               "type": "boolean"
             },
             "code_mode_prewarm": {
+              "type": "boolean"
+            },
+            "code_mode_tool_description_first": {
               "type": "boolean"
             },
             "codex_apps_mcp_2026_07_28": {
@@ -6839,6 +6845,9 @@
       "default": null,
       "description": "Centralized feature flags (new). Prefer this over individual toggles.",
       "properties": {
+        "aeon_wait_agent_disabled": {
+          "type": "boolean"
+        },
         "agent_message_board": {
           "type": "boolean"
         },
@@ -6922,6 +6931,9 @@
           "type": "boolean"
         },
         "code_mode_prewarm": {
+          "type": "boolean"
+        },
+        "code_mode_tool_description_first": {
           "type": "boolean"
         },
         "codex_apps_mcp_2026_07_28": {
