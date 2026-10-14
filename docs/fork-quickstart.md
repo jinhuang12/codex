@@ -1,6 +1,6 @@
 # Use this fork's AWS features
 
-This guide sets up ChatGPT Remote Control with AWS Mantle and optional AWS account balancing for subagents. Both features are on this fork's `main` branch.
+This guide sets up ChatGPT Remote Control with AWS Mantle, optional AWS account balancing for subagents, and Bedrock ultrafast.
 
 ## 1. Build the fork
 
@@ -107,6 +107,33 @@ With only `[default]` in `~/.aws/credentials`, keep `profile = "default"` and om
 Keep `$CODEX_HOME/bedrock-subagents` with the session history. Keep each profile name and key-file path tied to its original AWS account; renewing credentials for that same account is allowed. The pool controls model requests, not AWS commands run by tools. It does not move an existing agent to another account when a request is throttled.
 
 AWS subagent task messages use plain text inside the local process and saved history so they can cross accounts. HTTPS protects transport; each selected AWS account receives its assigned task data. Existing encrypted reasoning stays tied to its source account.
+
+## Bedrock ultrafast
+
+Ultrafast is available for these models in the bundled catalog:
+
+| Provider | Model IDs |
+| --- | --- |
+| Mantle | `openai.gpt-6-astra`, `openai.gpt-6.1-sol` |
+| Bedrock Runtime | `global.openai.gpt-6-astra`, `us.openai.gpt-6-astra`, `global.openai.gpt-6.1-sol`, `us.openai.gpt-6.1-sol` |
+
+Select one of these models in the CLI and enter `/ultrafast`. Enter the command again to return to standard speed. To select it for one CLI run, use:
+
+```sh
+codex -c 'service_tier="ultrafast"'
+```
+
+The bundled catalog keeps standard speed as the default. Ultrafast is a separate speed setting; it does not change reasoning effort. AWS account and region access still apply.
+
+If `model_catalog_json` selects a custom catalog, that file must list `ultrafast` in the model's `service_tiers`. The fork preserves custom tier definitions and defaults. It sends a selected tier only if the model advertises it. A custom catalog with no tiers keeps standard speed.
+
+This support adapts upstream commits [604061ce](https://github.com/openai/codex/commit/604061ce51d194a3aa6aad3b3170240d096e1725) and [87be737b](https://github.com/openai/codex/commit/87be737b664508d48402f08f57d09aba48e5f17a). Run the focused checks from the repository root:
+
+```sh
+bash scripts/test-bedrock-ultrafast.sh
+```
+
+The checks use local HTTP fixtures and test catalogs, request fields, and CLI selection. They do not make live AWS requests.
 
 ## More detail
 

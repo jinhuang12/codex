@@ -1,13 +1,14 @@
 # Codex CLI: AWS Mantle fork
 
-This is [jinhuang12/codex](https://github.com/jinhuang12/codex), a fork of [openai/codex](https://github.com/openai/codex). It adds two features to the upstream code used by this fork:
+This is [jinhuang12/codex](https://github.com/jinhuang12/codex), a fork of [openai/codex](https://github.com/openai/codex). It adds these features to the upstream code used by this fork:
 
 | Feature                                | What changes                                                                                                                                 | Guide                                                    |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
 | ChatGPT Remote Control with AWS Mantle | Connect through ChatGPT while the host sends model requests to AWS Mantle. ChatGPT still handles login, pairing, and remote session traffic. | [Remote Control](docs/mantle-remote-control.md)          |
 | AWS account balancing for subagents    | Assign new independent subagents to a pool of AWS profiles or API-key files. Each agent keeps its original assignment when it resumes.       | [Subagent balancing](docs/bedrock-subagent-balancing.md) |
+| Bedrock ultrafast                      | Select ultrafast for GPT-6 Astra or GPT-6.1 Sol on Mantle or Bedrock Runtime. Standard speed remains the default.                              | [Ultrafast](docs/fork-quickstart.md#bedrock-ultrafast) |
 
-**[Start here: build and use both features](docs/fork-quickstart.md).** Build this fork to get these changes. The installers below install upstream Codex.
+**[Start here: build and use the fork](docs/fork-quickstart.md).** Build this fork to get these changes. The installers below install upstream Codex.
 
 This build also omits reasoning summaries from model requests, including client requests for detailed summaries. Reasoning effort still applies.
 
