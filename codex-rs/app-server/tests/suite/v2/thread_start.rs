@@ -120,6 +120,44 @@ model = "gpt-5.4-mini"
 }
 
 #[tokio::test]
+async fn thread_start_accepts_desktop_compatibility_feature_overrides() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join("config.toml"),
+        "model_provider = \"amazon-bedrock\"\nmodel = \"openai.gpt-6-astra\"\nservice_tier = \"ultrafast\"\n",
+    )?;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .with_args(&["--strict-config"])
+        .build_initialized()
+        .await?;
+
+    for enabled in [false, true] {
+        let response = mcp
+            .start_thread(ThreadStartParams {
+                ephemeral: Some(true),
+                config: Some(std::collections::HashMap::from([
+                    (
+                        "features.code_mode_tool_description_first".to_string(),
+                        json!(enabled),
+                    ),
+                    (
+                        "features.aeon_wait_agent_disabled".to_string(),
+                        json!(!enabled),
+                    ),
+                ])),
+                ..Default::default()
+            })
+            .await?;
+        assert_eq!(response.model, "openai.gpt-6-astra");
+        assert_eq!(response.service_tier.as_deref(), Some("ultrafast"));
+        assert!(response.thread.ephemeral);
+        assert!(response.thread.path.is_none());
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn thread_start_warns_for_exec_policy_parse_failure_after_initialize() -> Result<()> {
     let codex_home = TempDir::new()?;
     let mut mcp = TestAppServer::builder()

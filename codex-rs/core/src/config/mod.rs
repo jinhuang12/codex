@@ -3820,7 +3820,8 @@ impl Config {
                 .unwrap_or_default(),
         };
         let code_mode = resolve_code_mode_config(&cfg);
-        let multi_agent_v2 = resolve_multi_agent_v2_config(&cfg);
+        let mut multi_agent_v2 = resolve_multi_agent_v2_config(&cfg);
+        multi_agent_v2.wait_agent_enabled &= !features.enabled(Feature::AeonWaitAgentDisabled);
         let token_budget = resolve_token_budget_config(&cfg, &features)?;
         let rollout_budget = resolve_rollout_budget_config(&cfg, &features)?;
         let current_time_reminder = resolve_current_time_reminder_config(&cfg, &features)?;
